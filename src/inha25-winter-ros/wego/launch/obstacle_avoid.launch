@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 
+    Obstacle Avoidance
+    - Lane tracing with gap-finding obstacle avoidance
+    -->
+    
+    <arg name="camera_topic" default="/usb_cam/image_raw/compressed"/>
+    <arg name="lidar_topic" default="/scan"/>
+    <arg name="show_image" default="true"/>
+    
+    <!-- Lane Detection Node (steering/speed만 publish, 모터 제어는 obstacle_avoid_node가 담당) -->
+    <node pkg="wego" type="lane_detect_node.py" name="lane_detect_node" output="screen">
+        <rosparam file="$(find wego)/config/lane_detect.yaml" command="load"/>
+        <param name="publish_cmd_vel" value="false"/>
+        <remap from="/usb_cam/image_raw/compressed" to="$(arg camera_topic)"/>
+    </node>
+    
+    <!-- Obstacle Avoidance Node -->
+    <node pkg="wego" type="obstacle_avoid_node.py" name="obstacle_avoid_node" output="screen">
+        <rosparam file="$(find wego)/config/obstacle_avoid.yaml" command="load"/>
+        <remap from="/scan" to="$(arg lidar_topic)"/>
+    </node>
+    
+    <!-- Image Viewers -->
+    <node if="$(arg show_image)" pkg="rqt_image_view" type="rqt_image_view" name="lane_viewer" args="/webot/lane_detect/image"/>
+    <node if="$(arg show_image)" pkg="rqt_image_view" type="rqt_image_view" name="obstacle_viewer" args="/webot/obstacle/debug"/>
+
+</launch>

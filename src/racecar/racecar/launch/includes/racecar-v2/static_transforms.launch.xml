@@ -1,0 +1,17 @@
+<!-- -*- mode: XML -*- -->
+<launch>
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_imu" 
+        args="0.0 0.0 0.0    0.0 0.0 0.0 1.0 /base_link /base_imu_link" />
+
+  <!-- LiDAR 180도 회전 장착: TF로 보정, 코드에서는 ±180°를 전방으로 사용 -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_laser" 
+        args="0.0 0.0 0.127 0.0 0.0 1.0 0.0 /base_link /laser" />
+
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_link_to_camera" 
+        args="0.0 0.0 0.0     0.0 0.0 0.0 1.0 /base_link /usb_cam" />
+
+  <!-- todo: zed camera -->
+  <!-- todo: structure sensor -->
+
+</launch>

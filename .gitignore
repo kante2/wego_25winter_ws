@@ -1,27 +1,13 @@
-# catkin build artifacts
 build/
 devel/
 logs/
 
-# common
 *.pyc
 __pycache__/
 .vscode/
 .idea/
 .DS_Store
 
-# ros bags / data
 *.bag
 *.bag.active
 *.bag.orig
-*.csv
-*.mp4
-*.avi
-
-# external repos under src (each has its own git)
-src/inha25-winter-ros/
-src/racecar/
-src/razor_imu_9dof/
-src/rplidar_ros/
-src/usb_cam/
-src/vesc/
