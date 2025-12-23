@@ -17,3 +17,11 @@ __pycache__/
 *.csv
 *.mp4
 *.avi
+
+# external repos under src (each has its own git)
+src/inha25-winter-ros/
+src/racecar/
+src/razor_imu_9dof/
+src/rplidar_ros/
+src/usb_cam/
+src/vesc/
