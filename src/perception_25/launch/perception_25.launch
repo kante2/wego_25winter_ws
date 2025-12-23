@@ -1,0 +1,115 @@
+<?xml version="1.0"?>
+<launch>
+  <!--
+    Perception 25 Launch File
+    All perception nodes in one launch file
+    Includes: lane, obstacle (lidar), traffic light, crosswalk detection
+  -->
+
+  <!-- Arguments -->
+  <arg name="camera_topic" default="/usb_cam/image_rect_color" />
+  <arg name="scan_topic" default="/scan" />
+  <arg name="show_debug_window" default="false" />
+
+  <!-- ==================== Lane Perception Node ==================== -->
+  <node pkg="perception_25" type="lane_perception_node" name="lane_perception_node" output="screen">
+    <param name="camera_topic" value="$(arg camera_topic)" />
+    <param name="center_point_topic" value="/webot/lane_center" />
+    <param name="curvature_topic" value="/webot/lane_curvature" />
+    <param name="center_color_topic" value="/webot/lane_color" />
+    
+    <!-- ROI Parameters -->
+    <param name="roi_top_ratio" value="0.3" />
+    <param name="roi_bottom_ratio" value="1.0" />
+    
+    <!-- HSV Parameters (Yellow lane detection) -->
+    <param name="hsv_h_low" value="18" />
+    <param name="hsv_h_high" value="38" />
+    <param name="hsv_s_low" value="100" />
+    <param name="hsv_s_high" value="255" />
+    <param name="hsv_v_low" value="110" />
+    <param name="hsv_v_high" value="230" />
+    
+    <!-- BEV Parameters -->
+    <param name="bev_center_x_px" value="320.0" />
+    
+    <!-- Debug -->
+    <param name="show_window" value="$(arg show_debug_window)" />
+  </node>
+
+  <!-- ==================== LiDAR Obstacle Perception Node ==================== -->
+  <node pkg="perception_25" type="lidar_obstacle_perception_node" name="lidar_obstacle_perception_node" output="screen">
+    <param name="scan_topic" value="$(arg scan_topic)" />
+    <param name="best_gap_topic" value="/webot/obstacle/best_gap" />
+    <param name="min_distance_topic" value="/webot/obstacle/min_distance" />
+    <param name="has_obstacle_topic" value="/webot/obstacle/has_obstacle" />
+    
+    <!-- Scan Parameters -->
+    <param name="scan_angle" value="30.0" />
+    <param name="num_sectors" value="12" />
+    
+    <!-- Distance Parameters (meters) -->
+    <param name="safe_distance" value="0.5" />
+    <param name="stop_distance" value="0.2" />
+  </node>
+
+  <!-- ==================== Traffic Light Perception Node ==================== -->
+  <node pkg="perception_25" type="traffic_light_perception_node" name="traffic_light_perception_node" output="screen">
+    <param name="camera_topic" value="$(arg camera_topic)" />
+    <param name="traffic_light_state_topic" value="/webot/traffic_light/state" />
+    
+    <!-- ROI Parameters -->
+    <param name="roi_top" value="0.0" />
+    <param name="roi_bottom" value="240.0" />
+    <param name="roi_left" value="0.0" />
+    <param name="roi_right" value="640.0" />
+    
+    <!-- Color Detection Parameters -->
+    <!-- Red: H=(0-10 or 170-180), S=100-255, V=100-255 -->
+    <!-- Green: H=35-85, S=80-255, V=80-255 -->
+    
+    <!-- Shape Detection -->
+    <param name="min_area" value="500" />
+    <param name="circularity_thresh" value="0.5" />
+    
+    <!-- Debug -->
+    <param name="show_window" value="$(arg show_debug_window)" />
+  </node>
+
+  <!-- ==================== Crosswalk Perception Node ==================== -->
+  <node pkg="perception_25" type="crosswalk_perception_node" name="crosswalk_perception_node" output="screen">
+    <param name="camera_topic" value="$(arg camera_topic)" />
+    <param name="crosswalk_detected_topic" value="/webot/crosswalk/detected" />
+    <param name="stripe_ratio_topic" value="/webot/crosswalk/stripe_ratio" />
+    
+    <!-- ROI Parameters (Trapezoid perspective) -->
+    <param name="roi_top_y_ratio" value="0.60" />
+    <param name="roi_left_top_ratio" value="0.22" />
+    <param name="roi_right_top_ratio" value="0.78" />
+    <param name="roi_left_bot_ratio" value="-0.40" />
+    <param name="roi_right_bot_ratio" value="1.40" />
+    
+    <!-- Stripe Detection Parameters -->
+    <param name="use_white_lanes" value="true" />
+    <param name="use_yellow_lanes" value="false" />
+    <param name="stripe_ratio_threshold" value="0.30" />
+    
+    <!-- Debug -->
+    <param name="show_window" value="$(arg show_debug_window)" />
+  </node>
+
+  <!-- ==================== Roundabout Perception Node (LiDAR) ==================== -->
+  <node pkg="perception_25" type="roundabout_perception_node" name="roundabout_perception_node" output="screen">
+    <param name="scan_topic" value="$(arg scan_topic)" />
+    
+    <!-- Detection Area Parameters (meters) -->
+    <param name="detect_x_min" value="0.2" />
+    <param name="detect_x_max" value="0.8" />
+    <param name="detect_y_min" value="-0.3" />
+    <param name="detect_y_max" value="0.3" />
+    
+    <!-- Obstacle Threshold (number of points) -->
+    <param name="obstacle_threshold" value="3" />
+  </node>
+
+</launch>

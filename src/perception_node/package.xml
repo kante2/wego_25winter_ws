@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>perception_node</name>
+  <version>0.0.1</version>
+  <description>The autorace_perception package</description>
+
+  <maintainer email="kante@todo.todo">kante</maintainer>
+  <license>BSD</license>
+
+  <!-- Build tool -->
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- 메시지 생성 -->
+  <build_depend>message_generation</build_depend>
+  <exec_depend>message_runtime</exec_depend>
+
+  <!-- Core deps -->
+  <depend>roscpp</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+
+  <!-- Image/vision -->
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+  <depend>image_proc</depend>
+  <depend>image_view</depend>
+  <!-- OpenCV: 일부 배포판에서 opencv2로 제공되므로 유지 (시스템 OpenCV는 find_package(OpenCV)로 링크) -->
+  <depend>opencv2</depend>
+
+  <!-- TF2 -->
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>tf2_sensor_msgs</depend>
+
+  <!-- Viz / Laser -->
+  <depend>visualization_msgs</depend>
+  <depend>laser_geometry</depend>
+
+  <!-- PCL (★ 에러 해결을 위해 추가) -->
+  <depend>pcl_ros</depend>
+  <depend>pcl_conversions</depend>
+
+  <!-- Devices / 기타 -->
+  <depend>usb_cam</depend>
+  <depend>morai_msgs</depend>
+
+  <export/>
+</package>

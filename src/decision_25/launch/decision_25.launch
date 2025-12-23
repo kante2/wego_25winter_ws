@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<launch>
+  <!--
+    Decision 25 Launch File
+    Main orchestrator node + individual decision nodes
+    Or use decision_25_main for integrated control
+  -->
+
+  <!-- Arguments -->
+  <arg name="use_main_orchestrator" default="true" />
+  <arg name="launch_individual_nodes" default="false" />
+
+  <!-- ==================== Decision 25 Main (Recommended) ==================== -->
+  <!-- Single integrated node that manages all decision priorities -->
+  <node if="$(arg use_main_orchestrator)" 
+        pkg="decision_25" type="decision_25_main" name="decision_25_main" 
+        output="screen">
+    <!-- Perception Input Topics -->
+    <param name="crosswalk_detected_topic" value="/webot/crosswalk/detected" />
+    <param name="traffic_light_state_topic" value="/webot/traffic_light/state" />
+    <param name="obstacle_has_topic" value="/webot/obstacle/has_obstacle" />
+    
+    <!-- Hysteresis Parameters -->
+    <param name="crosswalk_confirm_sec" value="0.3" />
+    <param name="crosswalk_release_sec" value="0.3" />
+    <param name="obstacle_confirm_sec" value="0.2" />
+    <param name="obstacle_release_sec" value="0.5" />
+  </node>
+
+  <!-- ==================== Individual Decision Nodes (Optional) ==================== -->
+  <!-- For debugging or separate control -->
+
+  <!-- Lane Decision Node -->
+  <node if="$(arg launch_individual_nodes)" 
+        pkg="decision_25" type="lane_decision_node" name="lane_decision_node" 
+        output="screen">
+    <!-- Perception Input Topics -->
+    <param name="topic_center_point" value="/webot/lane_center" />
+    <param name="topic_curvature_center" value="/webot/lane_curvature" />
+    <param name="topic_center_color" value="/webot/lane_color" />
+    
+    <!-- Control Output Topics -->
+    <param name="motor_topic" value="/commands/motor/speed" />
+    <param name="servo_topic" value="/commands/servo/position" />
+    
+    <!-- Control Parameters -->
+    <param name="bev_center_x_px" value="320.0" />
+    <param name="servo_center" value="0.57" />
+    <param name="servo_range" value="0.5" />
+    <param name="steer_sign" value="-1.0" />
+    <param name="steer_gain_base" value="0.8" />
+    <param name="base_speed_mps" value="7.0" />
+    <param name="motor_gain" value="300.0" />
+  </node>
+
+  <!-- Obstacle Avoidance Decision Node -->
+  <node if="$(arg launch_individual_nodes)" 
+        pkg="decision_25" type="obstacle_avoid_decision_node" name="obstacle_avoid_decision_node" 
+        output="screen">
+    <!-- Perception Input Topics -->
+    <param name="best_gap_topic" value="/webot/obstacle/best_gap" />
+    <param name="min_distance_topic" value="/webot/obstacle/min_distance" />
+    <param name="has_obstacle_topic" value="/webot/obstacle/has_obstacle" />
+    
+    <!-- Control Output Topics -->
+    <param name="motor_topic" value="/commands/motor/speed" />
+    <param name="servo_topic" value="/commands/servo/position" />
+    
+    <!-- Control Parameters -->
+    <param name="avoid_speed" value="0.2" />
+    <param name="servo_center" value="0.57" />
+    <param name="steer_sign" value="-1.0" />
+    <param name="steering_gain_obstacle" value="0.02" />
+    <param name="max_steering_obstacle" value="0.5" />
+    <param name="clear_threshold" value="20" />
+    <param name="motor_gain" value="300.0" />
+  </node>
+
+  <!-- Traffic Light Decision Node -->
+  <node if="$(arg launch_individual_nodes)" 
+        pkg="decision_25" type="traffic_light_decision_node" name="traffic_light_decision_node" 
+        output="screen">
+    <!-- Perception Input Topics -->
+    <param name="traffic_light_state_topic" value="/webot/traffic_light/state" />
+    <param name="lane_steering_topic" value="/webot/steering_offset" />
+    <param name="lane_speed_topic" value="/webot/lane_speed" />
+    
+    <!-- Control Output Topics -->
+    <param name="motor_topic" value="/commands/motor/speed" />
+    <param name="servo_topic" value="/commands/servo/position" />
+    
+    <!-- Control Parameters -->
+    <param name="servo_center" value="0.57" />
+    <param name="steer_sign" value="-1.0" />
+    <param name="motor_gain" value="300.0" />
+  </node>
+
+  <!-- Crosswalk Decision Node -->
+  <node if="$(arg launch_individual_nodes)" 
+        pkg="decision_25" type="crosswalk_decision_node" name="crosswalk_decision_node" 
+        output="screen">
+    <!-- Perception Input Topics -->
+    <param name="crosswalk_detected_topic" value="/webot/crosswalk/detected" />
+    <param name="stripe_ratio_topic" value="/webot/crosswalk/stripe_ratio" />
+    <param name="lane_steering_topic" value="/webot/steering_offset" />
+    <param name="lane_speed_topic" value="/webot/lane_speed" />
+    
+    <!-- Control Output Topics -->
+    <param name="motor_speed_topic" value="/commands/motor/speed" />
+    <param name="servo_position_topic" value="/commands/servo/position" />
+    
+    <!-- Control Parameters -->
+    <param name="servo_center" value="0.57" />
+    <param name="servo_range" value="0.5" />
+    <param name="steer_sign" value="-1.0" />
+    <param name="motor_gain" value="300.0" />
+    <param name="stop_speed_cmd" value="0.0" />
+    <param name="stop_threshold" value="5" />
+  </node>
+
+  <!-- Roundabout Decision Node -->
+  <node if="$(arg launch_individual_nodes)" 
+        pkg="decision_25" type="roundabout_decision_node" name="roundabout_decision_node" 
+        output="screen">
+    <!-- Perception Input Topics -->
+    <param name="obstacle_detected_topic" value="/webot/roundabout/obstacle_detected" />
+    <param name="obstacle_count_topic" value="/webot/roundabout/obstacle_count" />
+    
+    <!-- Control Output Topics -->
+    <param name="motor_topic" value="/commands/motor/speed" />
+    <param name="servo_topic" value="/commands/servo/position" />
+    <param name="roundabout_state_topic" value="/webot/roundabout/state" />
+    
+    <!-- Control Parameters -->
+    <param name="servo_center" value="0.57" />
+    <param name="steer_sign" value="-1.0" />
+  </node>
+
+</launch>

@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<launch>
+  <!--
+    Complete 25 System Launch File
+    Launches both perception_25 and decision_25 nodes
+    All sensors and control logic in one launch
+  -->
+
+  <!-- Arguments -->
+  <arg name="camera_topic" default="/usb_cam/image_rect_color" />
+  <arg name="scan_topic" default="/scan" />
+  <arg name="show_debug_window" default="false" />
+  <arg name="use_main_orchestrator" default="true" />
+
+  <!-- ==================== Perception 25 ==================== -->
+  <include file="$(find perception_25)/launch/perception_25.launch">
+    <arg name="camera_topic" value="$(arg camera_topic)" />
+    <arg name="scan_topic" value="$(arg scan_topic)" />
+    <arg name="show_debug_window" value="$(arg show_debug_window)" />
+  </include>
+
+  <!-- ==================== Decision 25 ==================== -->
+  <include file="$(find decision_25)/launch/decision_25.launch">
+    <arg name="use_main_orchestrator" value="$(arg use_main_orchestrator)" />
+  </include>
+
+</launch>
