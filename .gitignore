@@ -1,0 +1,19 @@
+# catkin build artifacts
+build/
+devel/
+logs/
+
+# common
+*.pyc
+__pycache__/
+.vscode/
+.idea/
+.DS_Store
+
+# ros bags / data
+*.bag
+*.bag.active
+*.bag.orig
+*.csv
+*.mp4
+*.avi
