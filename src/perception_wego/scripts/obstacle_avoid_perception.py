@@ -11,7 +11,7 @@ Obstacle Avoidance Perception Node for WEGO (Gap Finding Algorithm)
 import rospy
 import numpy as np
 import cv2
-from sensor_msgs.msg import LaserScan, Image
+from sensor_msgs.msg import LaserScan, Image, CompressedImage
 from std_msgs.msg import Float32, Int32
 from cv_bridge import CvBridge
 from dynamic_reconfigure.server import Server
@@ -49,8 +49,19 @@ class ObstacleAvoidPerception:
         self.pub_min_distance = rospy.Publisher('/webot/obstacle/min_distance', Float32, queue_size=1)
         self.pub_debug_image = rospy.Publisher('/webot/obstacle/debug', Image, queue_size=1)
         
+        # 색상 기반 분류 (노란색 콘 vs 검은 차량)
+        self.pub_obstacle_type = rospy.Publisher('/webot/obstacle/type', Int32, queue_size=1)  # 0=none, 1=yellow_cone, 2=black_car
+        self.pub_yellow_count = rospy.Publisher('/webot/obstacle/yellow_count', Int32, queue_size=1)  # 노란색 HSV 픽셀 개수 (30000 이상 = 콘 감지)
+        
         # Subscribers
         self.sub_scan = rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size=1)
+        
+        # 카메라 입력 (색상 기반 장애물 분류용)
+        self.sub_image = rospy.Subscriber('/usb_cam/image_raw/compressed', CompressedImage, 
+                                          self.image_callback, queue_size=1)
+        
+        self.yellow_count = 0  # 현재 감지된 노란색 개수
+        self.obstacle_type = 0  # 0=none, 1=yellow_cone, 2=black_car
         
         # Timers
         self.vis_timer = rospy.Timer(rospy.Duration(0.1), self.visualization_callback)
@@ -94,6 +105,56 @@ class ObstacleAvoidPerception:
         self.angle_increment = msg.angle_increment
         self._calculate_sector_distances()
         self._publish_perception_data()
+    
+    def image_callback(self, msg):
+        """Process camera image to detect yellow cone only"""
+        try:
+            # Decompress image
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            
+            if img is None:
+                return
+            
+            # HSV 변환
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            
+            # 노란색 범위 - 정확한 필터 (실제 노란색 콘만 감지)
+            # H: 15-35 (정확한 노란색 범위)
+            # S: 80-255 (포화도 높음 - 진한 노란색만)
+            # V: 80-255 (명도 높음 - 밝은 노란색만)
+            lower_yellow = np.array([15, 80, 80])
+            upper_yellow = np.array([35, 255, 255])
+            mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+            
+            # 형태학 연산 (노이즈 제거 - 더 강한 필터)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))  # 커널 크기 증가
+            mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_OPEN, kernel)
+            mask_yellow = cv2.morphologyEx(mask_yellow, cv2.MORPH_CLOSE, kernel)
+            
+            # Dilate로 콘 영역 확대 (한 번만)
+            mask_yellow = cv2.dilate(mask_yellow, kernel, iterations=1)
+            
+            # 노란색 픽셀 개수 세기 (HSV 필터링된 픽셀 전체)
+            # 30,000 픽셀 이상 = 노란색 콘 감지
+            yellow_pixel_count = cv2.countNonZero(mask_yellow)
+            self.yellow_count = yellow_pixel_count
+            
+            # 장애물 타입 결정 (단순화)
+            # 우선순위: HSV 픽셀 30,000개 이상 → type=1 (노란색 콘)
+            #         픽셀 미감지 + min_distance < safe_distance → type=2 (검은 차)
+            #         장애물 없음 → type=0
+            if self.yellow_count >= 30000:  # 30,000 픽셀 이상 = 노란색 콘
+                self.obstacle_type = 1  # 노란색 콘 감지됨
+            elif self._get_min_front_distance() < self.safe_distance:
+                self.obstacle_type = 2  # 노란색 없지만 LiDAR로 장애물 감지 = 검은 차
+            else:
+                self.obstacle_type = 0  # 장애물 없음
+            
+            rospy.loginfo_throttle(1.0, f"[ObstaclePerception] yellow_pixels={self.yellow_count} threshold=30000 min_dist={self._get_min_front_distance():.2f}m type={self.obstacle_type}")
+            
+        except Exception as e:
+            rospy.logwarn_throttle(5, f"[ObstaclePerception] Image processing error: {e}")
     
     def _calculate_sector_distances(self):
         """Calculate minimum distance for each sector"""
@@ -185,6 +246,10 @@ class ObstacleAvoidPerception:
         self.pub_gap_angle.publish(Float32(gap_angle))
         self.pub_gap_width.publish(Int32(gap_width))
         self.pub_min_distance.publish(Float32(min_dist))
+        
+        # 색상 기반 분류 발행
+        self.pub_obstacle_type.publish(Int32(self.obstacle_type))
+        self.pub_yellow_count.publish(Int32(self.yellow_count))
     
     def publish_debug_image(self):
         """LiDAR sector visualization for rqt_image_view"""

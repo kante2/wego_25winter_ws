@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 
+    WEGO Complete System Launch File
+    - Includes: Perception nodes + Decision node
+    -->
+
+    <!-- Include Perception Nodes -->
+    <include file="$(find perception_wego)/launch/perception_all.launch"/>
+
+    <!-- Include Decision Nodes -->
+    <include file="$(find decision_wego)/launch/decision_all.launch"/>
+
+</launch>

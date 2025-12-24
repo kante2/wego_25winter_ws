@@ -20,5 +20,15 @@ include_directories(
 catkin_install_python(PROGRAMS
   scripts/lane_detect_decision_solo.py
   scripts/obstacle_avoid_decision.py
+  scripts/parking_decision_solo.py
+  scripts/main_node.py
+  scripts/mission_lane.py
+  scripts/mission_obstacle.py
+  scripts/mission_parking.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# Install launch files
+install(DIRECTORY launch/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
 )
