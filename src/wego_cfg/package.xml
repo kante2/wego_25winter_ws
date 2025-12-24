@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>wego_cfg</name>
+  <version>0.0.1</version>
+  <description>Shared config for WEGO packages</description>
+  <maintainer email="wego@wego.com">WEGO</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>dynamic_reconfigure</depend>
+</package>
