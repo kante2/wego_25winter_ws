@@ -136,22 +136,22 @@ class ObstacleAvoidPerception:
             mask_yellow = cv2.dilate(mask_yellow, kernel, iterations=1)
             
             # 노란색 픽셀 개수 세기 (HSV 필터링된 픽셀 전체)
-            # 30,000 픽셀 이상 = 노란색 콘 감지
+            # ✅ Updated: 5,000 픽셀 이상 = 노란색 콘 감지 (더 민감)
             yellow_pixel_count = cv2.countNonZero(mask_yellow)
             self.yellow_count = yellow_pixel_count
             
             # 장애물 타입 결정 (단순화)
-            # 우선순위: HSV 픽셀 30,000개 이상 → type=1 (노란색 콘)
+            # 우선순위: HSV 픽셀 5,000개 이상 → type=1 (노란색 콘)
             #         픽셀 미감지 + min_distance < safe_distance → type=2 (검은 차)
             #         장애물 없음 → type=0
-            if self.yellow_count >= 30000:  # 30,000 픽셀 이상 = 노란색 콘
+            if self.yellow_count >= 5000:  # ✅ 30,000 → 5,000 (더 쉽게 감지)
                 self.obstacle_type = 1  # 노란색 콘 감지됨
             elif self._get_min_front_distance() < self.safe_distance:
                 self.obstacle_type = 2  # 노란색 없지만 LiDAR로 장애물 감지 = 검은 차
             else:
                 self.obstacle_type = 0  # 장애물 없음
             
-            rospy.loginfo_throttle(1.0, f"[ObstaclePerception] yellow_pixels={self.yellow_count} threshold=30000 min_dist={self._get_min_front_distance():.2f}m type={self.obstacle_type}")
+            rospy.loginfo_throttle(1.0, f"[ObstaclePerception] yellow_pixels={self.yellow_count} threshold=5000 min_dist={self._get_min_front_distance():.2f}m type={self.obstacle_type}")
             
         except Exception as e:
             rospy.logwarn_throttle(5, f"[ObstaclePerception] Image processing error: {e}")

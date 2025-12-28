@@ -240,8 +240,13 @@ class LaneDetectPerception:
                 cv2.putText(vis_img, status_text, (10, 30),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
+                # ✅ ROI 정보 표시
+                roi_info = f"ROI: top={self.config.roi_top_ratio:.1%} bottom={self.config.roi_bottom_ratio:.1%}"
+                cv2.putText(vis_img, roi_info, (10, 50),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                
                 lane_status = "DETECTED" if lane_detected else "NOT DETECTED"
-                cv2.putText(vis_img, f"Lane: {lane_status}", (10, 60),
+                cv2.putText(vis_img, f"Lane: {lane_status}", (10, 70),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0) if lane_detected else (0, 0, 255), 2)
                 
                 self.pub_image.publish(self.bridge.cv2_to_imgmsg(vis_img, "bgr8"))
