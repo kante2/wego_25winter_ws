@@ -31,13 +31,15 @@ class LaneDetectROIDebug:
         # self.hsv_s_high = rospy.get_param('~hsv_s_high', 100)  # 채도 높음: 확대
         # self.hsv_v_low = rospy.get_param('~hsv_v_low', 60)    # 명도 낮춤: 어두운 차선도 포함
         # self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
+        # ===== HSV 범위 (흰색 강건화) =====
+        # 흰색: H=0-180 (무관), S=0-50 (낮음), V=150+ (밝음)
         self.hsv_h_low  = rospy.get_param('~hsv_h_low', 0)
-        self.hsv_h_high = rospy.get_param('~hsv_h_high', 179)  # OpenCV HSV H는 0~179 권장
+        self.hsv_h_high = rospy.get_param('~hsv_h_high', 179)
 
         self.hsv_s_low  = rospy.get_param('~hsv_s_low', 0)
-        self.hsv_s_high = rospy.get_param('~hsv_s_high', 255)  # ✅ 100 -> 255 (흰색인데 S가 높게 찍히는 경우 살림)
+        self.hsv_s_high = rospy.get_param('~hsv_s_high', 50)    # ✅ 255 -> 50 (흰색은 채도 낮음)
 
-        self.hsv_v_low  = rospy.get_param('~hsv_v_low', 40)    # ✅ 100 -> 60~80 (그림자 흰색 살림)
+        self.hsv_v_low  = rospy.get_param('~hsv_v_low', 150)    # ✅ 40 -> 150 (밝은 흰색만)
         self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
 
         
@@ -133,10 +135,11 @@ class LaneDetectROIDebug:
             upper = np.array([self.hsv_h_high, self.hsv_s_high, self.hsv_v_high])
             mask = cv2.inRange(hsv, lower, upper)
             
-            # 형태학 연산
+            # 형태학 연산 (흰색 강건화)
             kernel = np.ones((5, 5), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # 흰색 연결
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # 노이즈 제거
+            mask = cv2.dilate(mask, kernel, iterations=2)           # ✅ 흰색 영역 확대
             
             # ========================================
             # 히스토그램으로 차선 중심 찾기
