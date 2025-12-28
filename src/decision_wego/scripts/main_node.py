@@ -9,12 +9,14 @@ from ackermann_msgs.msg import AckermannDriveStamped
 import mission_lane
 import mission_obstacle
 import mission_parking
+import mission_crosswalk
 
 
 class MissionState(IntEnum):
     LANE = 0
     OBSTACLE = 1
     PARKING = 2
+    CROSSWALK = 3
 
 
 def make_ackermann(speed: float, steer: float) -> AckermannDriveStamped:
@@ -50,10 +52,12 @@ class MainDecisionNode:
         self.m_lane = mission_lane.LaneMission()
         self.m_obstacle = mission_obstacle.ObstacleAvoidMission()
         self.m_parking = mission_parking.ParkingMission()
+        self.m_crosswalk = mission_crosswalk.CrosswalkMission()
 
         self.m_lane.init_from_params("~lane")
         self.m_obstacle.init_from_params("~obstacle")
         self.m_parking.init_from_params("~parking")
+        self.m_crosswalk.init_from_params("~crosswalk")
 
         self.state = MissionState.LANE
         self.prev_state = self.state
@@ -66,20 +70,25 @@ class MainDecisionNode:
 
     def _decide_state(self) -> MissionState:
         """
-        Priority: Marker(PARKING) > OBSTACLE > LANE
+        Priority: Marker(PARKING) > CROSSWALK > OBSTACLE > LANE
         - PARKING: parking mission이 IDLE이 아닌 상태(=트리거되었거나 수행중/완료)면 유지
+        - CROSSWALK: crosswalk mission이 IDLE이 아닌 상태면 유지
         - OBSTACLE: min_distance < safe_distance 이거나 avoiding 진행중이면
         """
         # 1) parking first
         if self.m_parking.is_active():
             return MissionState.PARKING
 
-        # 2) obstacle second
+        # 2) crosswalk second
+        if self.m_crosswalk.is_active():
+            return MissionState.CROSSWALK
+
+        # 3) obstacle third
         # mission_obstacle.py 내부 상태 사용 (이전 답변의 모듈 기준)
         if (self.m_obstacle.min_distance < self.m_obstacle.safe_distance) or self.m_obstacle.avoiding:
             return MissionState.OBSTACLE
 
-        # 3) default lane
+        # 4) default lane
         return MissionState.LANE
 
     def spin(self):
@@ -100,6 +109,12 @@ class MainDecisionNode:
                 # parking state/done publish
                 self.pub_parking_state.publish(String(data=self.m_parking.state))
                 self.pub_parking_done.publish(Bool(data=bool(self.m_parking.done)))
+
+            elif self.state == MissionState.CROSSWALK:
+                speed, steer, dbg = self.m_crosswalk.step()
+                # parking debug topic은 그냥 IDLE로 유지
+                self.pub_parking_state.publish(String(data=mission_parking.ParkingState.IDLE))
+                self.pub_parking_done.publish(Bool(data=False))
 
             elif self.state == MissionState.OBSTACLE:
                 speed, steer, dbg = self.m_obstacle.step()
