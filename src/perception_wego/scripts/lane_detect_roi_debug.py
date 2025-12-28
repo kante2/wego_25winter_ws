@@ -31,15 +31,15 @@ class LaneDetectROIDebug:
         # self.hsv_s_high = rospy.get_param('~hsv_s_high', 100)  # 채도 높음: 확대
         # self.hsv_v_low = rospy.get_param('~hsv_v_low', 60)    # 명도 낮춤: 어두운 차선도 포함
         # self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
-        # ===== HSV 범위 (흰색 강건화) =====
-        # 흰색: H=0-180 (무관), S=0-50 (낮음), V=150+ (밝음)
+        # ===== HSV 범위 (흰색 최적화) =====
+        # 흰색: H=0-180 (무관), S=0-30 (낮음), V=100-255 (밝은~중간)
         self.hsv_h_low  = rospy.get_param('~hsv_h_low', 0)
-        self.hsv_h_high = rospy.get_param('~hsv_h_high', 179)
+        self.hsv_h_high = rospy.get_param('~hsv_h_high', 180)
 
         self.hsv_s_low  = rospy.get_param('~hsv_s_low', 0)
-        self.hsv_s_high = rospy.get_param('~hsv_s_high', 50)    # ✅ 255 -> 50 (흰색은 채도 낮음)
+        self.hsv_s_high = rospy.get_param('~hsv_s_high', 30)     # 채도 낮음: 순수 흰색
 
-        self.hsv_v_low  = rospy.get_param('~hsv_v_low', 150)    # ✅ 40 -> 150 (밝은 흰색만)
+        self.hsv_v_low  = rospy.get_param('~hsv_v_low', 100)    # ✅ 어두운 흰색도 포함
         self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
 
         
