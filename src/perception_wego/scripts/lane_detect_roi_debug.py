@@ -21,8 +21,9 @@ class LaneDetectROIDebug:
         self.bridge = CvBridge()
         
         # 기본 파라미터
-        self.roi_top_ratio = rospy.get_param('~roi_top_ratio', 0.3)
-        self.roi_bottom_ratio = rospy.get_param('~roi_bottom_ratio', 1.0)
+        # ✅ Updated: roi_top_ratio 0.6 (60% skip for near distance)
+        self.roi_top_ratio = rospy.get_param('~roi_top_ratio', 0.6)
+        self.roi_bottom_ratio = rospy.get_param('~roi_bottom_ratio', 0.95)
         
         # HSV 필터 파라미터 (더 완만하게 설정)
         # self.hsv_h_low = rospy.get_param('~hsv_h_low', 0)
