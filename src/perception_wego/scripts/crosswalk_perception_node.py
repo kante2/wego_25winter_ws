@@ -28,8 +28,8 @@ class CrosswalkPerceptionNode:
         self.roi_right_bot_ratio = float(rospy.get_param("~roi_right_bot_ratio", 1.40))
 
         # 송도/대회장 전환
-        self.use_yellow = bool(rospy.get_param("~use_yellow_lanes", False))
-        self.use_white  = bool(rospy.get_param("~use_white_lanes",  True))
+        self.use_yellow = bool(rospy.get_param("~use_yellow_lanes", True))
+        self.use_white  = bool(rospy.get_param("~use_white_lanes", False))
 
         self.image_topic = rospy.get_param("~image_topic", "/usb_cam/image_rect_color")
 
