@@ -37,7 +37,7 @@ class LaneDetectROIDebug:
         self.hsv_s_low  = rospy.get_param('~hsv_s_low', 0)
         self.hsv_s_high = rospy.get_param('~hsv_s_high', 255)  # ✅ 100 -> 255 (흰색인데 S가 높게 찍히는 경우 살림)
 
-        self.hsv_v_low  = rospy.get_param('~hsv_v_low', 60)    # ✅ 100 -> 60~80 (그림자 흰색 살림)
+        self.hsv_v_low  = rospy.get_param('~hsv_v_low', 40)    # ✅ 100 -> 60~80 (그림자 흰색 살림)
         self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
 
         
