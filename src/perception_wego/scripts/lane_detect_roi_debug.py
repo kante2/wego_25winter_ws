@@ -25,12 +25,21 @@ class LaneDetectROIDebug:
         self.roi_bottom_ratio = rospy.get_param('~roi_bottom_ratio', 1.0)
         
         # HSV 필터 파라미터 (더 완만하게 설정)
-        self.hsv_h_low = rospy.get_param('~hsv_h_low', 0)
-        self.hsv_h_high = rospy.get_param('~hsv_h_high', 180)
-        self.hsv_s_low = rospy.get_param('~hsv_s_low', 0)      # 채도 낮음: 더 많은 흰색 포함
-        self.hsv_s_high = rospy.get_param('~hsv_s_high', 100)  # 채도 높음: 확대
-        self.hsv_v_low = rospy.get_param('~hsv_v_low', 100)    # 명도 낮춤: 어두운 차선도 포함
+        # self.hsv_h_low = rospy.get_param('~hsv_h_low', 0)
+        # self.hsv_h_high = rospy.get_param('~hsv_h_high', 255)
+        # self.hsv_s_low = rospy.get_param('~hsv_s_low', 0)      # 채도 낮음: 더 많은 흰색 포함
+        # self.hsv_s_high = rospy.get_param('~hsv_s_high', 100)  # 채도 높음: 확대
+        # self.hsv_v_low = rospy.get_param('~hsv_v_low', 60)    # 명도 낮춤: 어두운 차선도 포함
+        # self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
+        self.hsv_h_low  = rospy.get_param('~hsv_h_low', 0)
+        self.hsv_h_high = rospy.get_param('~hsv_h_high', 179)  # OpenCV HSV H는 0~179 권장
+
+        self.hsv_s_low  = rospy.get_param('~hsv_s_low', 0)
+        self.hsv_s_high = rospy.get_param('~hsv_s_high', 255)  # ✅ 100 -> 255 (흰색인데 S가 높게 찍히는 경우 살림)
+
+        self.hsv_v_low  = rospy.get_param('~hsv_v_low', 60)    # ✅ 100 -> 60~80 (그림자 흰색 살림)
         self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
+
         
         # 마커 파라미터
         self.min_pixels = rospy.get_param('~min_pixels', 500)
