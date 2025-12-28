@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 
+    WEGO Decision All Nodes Launch File
+    - Main Decision Node (coordinates Lane, Obstacle, Parking missions)
+    -->
+
+    <!-- Main Decision Node -->
+    <node pkg="decision_wego" type="main_node.py" name="wego_main_decision" 
+          output="screen" respawn="false">
+        <!-- Motor control topic -->
+        <param name="~cmd_topic" value="/low_level/ackermann_cmd_mux/input/navigation"/>
+        
+        <!-- Update rate (Hz) -->
+        <param name="~rate_hz" value="20.0"/>
+        
+        <!-- Traffic stop topic for override -->
+        <param name="~traffic_stop_topic" value="/webot/traffic_stop"/>
+        
+        <!-- Lane Mission Parameters -->
+        <param name="~lane/steering_offset_topic" value="/webot/steering_offset"/>
+        <param name="~lane/lane_speed_topic" value="/webot/lane_speed"/>
+        <param name="~lane/steer_limit" value="0.7"/>
+        <param name="~lane/speed_limit" value="0.4"/>
+        <!-- 0.6 ,0.5 -->
+        <param name="~lane/timeout_sec" value="0.5"/>
+        
+        <!-- Obstacle Mission Parameters -->
+        <param name="~obstacle/gap_angle_topic" value="/webot/obstacle/gap_angle"/>
+        <param name="~obstacle/gap_width_topic" value="/webot/obstacle/gap_width"/>
+        <param name="~obstacle/min_distance_topic" value="/webot/obstacle/min_distance"/>
+        <param name="~obstacle/lane_steering_topic" value="/webot/steering_offset"/>
+        <param name="~obstacle/lane_speed_topic" value="/webot/lane_speed"/>
+        <param name="~obstacle/safe_distance" value="0.5"/>
+        <param name="~obstacle/stop_distance" value="0.2"/>
+        <param name="~obstacle/avoid_speed" value="0.2"/>
+        <param name="~obstacle/max_steering" value="0.5"/>
+        <param name="~obstacle/steering_gain" value="0.02"/>
+        <param name="~obstacle/clear_threshold" value="20"/>
+        
+        <!-- Parking Mission Parameters -->
+        <param name="~parking/aruco_marker_info_topic" value="/webot/aruco/marker_info"/>
+        <param name="~parking/lane_steering_topic" value="/webot/steering_offset"/>
+        <param name="~parking/lane_speed_topic" value="/webot/lane_speed"/>
+        <param name="~parking/target_marker_id" value="0"/>
+        <param name="~parking/trigger_distance" value="0.5"/>
+        <param name="~parking/speed_slow" value="0.15"/>
+        <param name="~parking/speed_reverse" value="-0.13"/>
+        <param name="~parking/steering_angle" value="0.5"/>
+        <param name="~parking/forward_time" value="1.5"/>
+        <param name="~parking/reverse_right_time" value="3.0"/>
+        <param name="~parking/reverse_left_time" value="3.0"/>
+        <param name="~parking/final_forward_time" value="1.0"/>
+        <param name="~parking/stop_before_sec" value="1.0"/>
+        <param name="~parking/stop_align_sec" value="1.0"/>
+    </node>
+
+</launch>

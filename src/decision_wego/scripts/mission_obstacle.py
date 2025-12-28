@@ -16,17 +16,21 @@ class ObstacleAvoidMission:
 
     def __init__(self):
         # params
-        self.safe_distance = 0.5
-        self.stop_distance = 0.2
-        self.avoid_speed = 0.2
-        self.max_steering = 0.5
-        self.steering_gain = 0.02
-        self.clear_threshold = 20
+        self.safe_distance = 0.5      # 회피 시작 거리 (50cm)
+        self.stop_distance = 0.05     # 응급 정지 거리 (5cm) ← 0.2m에서 0.05m로 변경
+        self.avoid_speed = 0.3        # 기본 회피 속도 (0.2에서 0.3으로 상향)
+        self.max_steering = 0.8       # 최대 조향각 (0.5에서 0.8로 상향)
+        self.steering_gain = 0.05     # 기본 조향 게인 (0.02에서 0.05로 상향)
+        self.clear_threshold = 20     # 안전 판정 사이클
 
         # perception
         self.gap_angle = 0.0
         self.gap_width = 1
         self.min_distance = 10.0
+        
+        # 색상 기반 분류
+        self.obstacle_type = 0  # 0=none, 1=yellow_cone, 2=black_car
+        self.yellow_count = 0   # 노란색 개수
 
         # lane fallback
         self.lane_steering = 0.0
@@ -51,14 +55,20 @@ class ObstacleAvoidMission:
 
         t_lane_steer = rospy.get_param(f"{ns}/lane_steering_topic", "/webot/steering_offset")
         t_lane_speed = rospy.get_param(f"{ns}/lane_speed_topic", "/webot/lane_speed")
+        
+        # 색상 기반 분류 토픽
+        t_obstacle_type = rospy.get_param(f"{ns}/obstacle_type_topic", "/webot/obstacle/type")
+        t_yellow_count = rospy.get_param(f"{ns}/yellow_count_topic", "/webot/obstacle/yellow_count")
 
         rospy.Subscriber(t_gap_angle, Float32, self._cb_gap_angle, queue_size=1)
         rospy.Subscriber(t_gap_width, Int32, self._cb_gap_width, queue_size=1)
         rospy.Subscriber(t_min_dist, Float32, self._cb_min_dist, queue_size=1)
         rospy.Subscriber(t_lane_steer, Float32, self._cb_lane_steer, queue_size=1)
         rospy.Subscriber(t_lane_speed, Float32, self._cb_lane_speed, queue_size=1)
+        rospy.Subscriber(t_obstacle_type, Int32, self._cb_obstacle_type, queue_size=1)
+        rospy.Subscriber(t_yellow_count, Int32, self._cb_yellow_count, queue_size=1)
 
-        rospy.loginfo("[mission_obstacle] sub: %s %s %s", t_gap_angle, t_gap_width, t_min_dist)
+        rospy.loginfo("[mission_obstacle] sub: %s %s %s type=%s", t_gap_angle, t_gap_width, t_min_dist, t_obstacle_type)
 
     def _cb_gap_angle(self, msg: Float32):
         self.gap_angle = float(msg.data)
@@ -74,6 +84,12 @@ class ObstacleAvoidMission:
 
     def _cb_lane_speed(self, msg: Float32):
         self.lane_speed = float(msg.data)
+    
+    def _cb_obstacle_type(self, msg: Int32):
+        self.obstacle_type = int(msg.data)
+    
+    def _cb_yellow_count(self, msg: Int32):
+        self.yellow_count = int(msg.data)
 
     def on_enter(self):
         rospy.loginfo("[mission_obstacle] enter")
@@ -86,34 +102,77 @@ class ObstacleAvoidMission:
     def step(self):
         state = "IDLE"
 
-        # emergency stop
-        if self.min_distance < self.stop_distance:
-            self.avoiding = True
-            self.clear_count = 0
-            return 0.0, 0.0, f"TOO_CLOSE min={self.min_distance:.2f}m"
-
-        # obstacle in front
-        if self.min_distance < self.safe_distance:
-            self.avoiding = True
-            self.clear_count = 0
-
-            steering = -self.steering_gain * self.gap_angle
-            steering = float(np.clip(steering, -self.max_steering, self.max_steering))
-            state = f"AVOID gap={self.gap_angle:.1f}deg width={self.gap_width} min={self.min_distance:.2f}"
-            return self.avoid_speed, steering, state
-
-        # avoiding but currently clear -> hold for N cycles
-        if self.avoiding:
-            steering = -self.steering_gain * self.gap_angle
-            steering = float(np.clip(steering, -self.max_steering, self.max_steering))
-
-            self.clear_count += 1
-            if self.clear_count >= self.clear_threshold:
-                self.avoiding = False
+        # ========================================
+        # 검은 차량 (gap_angle 사용 X)
+        # ========================================
+        if self.obstacle_type == 2:  # 검은 차량 감지
+            
+            # 상황 1: 5cm 이내 → 완전 정지
+            if self.min_distance < self.stop_distance:
+                self.avoiding = True
                 self.clear_count = 0
-                return self.lane_speed, self.lane_steering, "RETURN_TO_LANE"
-            else:
-                return self.avoid_speed, steering, f"AVOID_CLEAR {self.clear_count}/{self.clear_threshold}"
+                return 0.0, 0.0, f"BLACK_CAR_STOP min={self.min_distance:.3f}m"
+            
+            # 상황 2: 5cm~50cm → 저속 직진만 (회피 X)
+            if self.min_distance < self.safe_distance:
+                self.avoiding = True
+                self.clear_count = 0
+                return 0.05, 0.0, f"BLACK_CAR_APPROACH min={self.min_distance:.3f}m"
+            
+            # 상황 3: 50cm 이상 & 회피 중 → 복귀 준비
+            if self.avoiding:
+                self.clear_count += 1
+                if self.clear_count >= self.clear_threshold:
+                    self.avoiding = False
+                    self.clear_count = 0
+                    return self.lane_speed, self.lane_steering, "BLACK_CAR_CLEAR_RETURN"
+                else:
+                    return 0.05, 0.0, f"BLACK_CAR_CLEAR_WAIT {self.clear_count}/{self.clear_threshold}"
+        
+        # ========================================
+        # 노란색 콘 (gap_angle 사용 O)
+        # ========================================
+        elif self.obstacle_type == 1:  # 노란색 콘 감지
+            
+            # 상황 1: 5cm 이내 → 완전 정지
+            if self.min_distance < self.stop_distance:
+                self.avoiding = True
+                self.clear_count = 0
+                return 0.0, 0.0, f"YELLOW_CONE_EMERGENCY min={self.min_distance:.3f}m"
+            
+            # 상황 2: 5cm~50cm → 하드하게 회피 (gap_angle 사용)
+            if self.min_distance < self.safe_distance:
+                self.avoiding = True
+                self.clear_count = 0
 
-        # normal fallback
-        return self.lane_speed, self.lane_steering, "LANE_FALLBACK"
+                # 거리가 가까울수록 더 강한 회피
+                proximity_ratio = 1.0 - (self.min_distance / self.safe_distance)
+                dynamic_gain = self.steering_gain * (1.0 + 2.0 * proximity_ratio)
+                
+                # gap_angle 기반 회피
+                steering = -dynamic_gain * self.gap_angle
+                steering = float(np.clip(steering, -self.max_steering, self.max_steering))
+                
+                # 거리가 가까울수록 빠른 회피
+                dynamic_speed = self.avoid_speed * (0.5 + 1.5 * proximity_ratio)
+                
+                state = f"YELLOW_AVOID dist={self.min_distance:.3f}m gap={self.gap_angle:.1f}° steer={steering:.3f}"
+                return dynamic_speed, steering, state
+            
+            # 상황 3: 50cm 이상 & 회피 중 → 지연 복귀
+            if self.avoiding:
+                steering = -self.steering_gain * self.gap_angle
+                steering = float(np.clip(steering, -self.max_steering, self.max_steering))
+
+                self.clear_count += 1
+                if self.clear_count >= self.clear_threshold:
+                    self.avoiding = False
+                    self.clear_count = 0
+                    return self.lane_speed, self.lane_steering, "YELLOW_RETURN_TO_LANE"
+                else:
+                    return self.avoid_speed, steering, f"YELLOW_AVOIDING_CLEAR {self.clear_count}/{self.clear_threshold}"
+        
+        # ========================================
+        # 정상 모드 (장애물 없음)
+        # ========================================
+        return self.lane_speed, self.lane_steering, "LANE_NORMAL"

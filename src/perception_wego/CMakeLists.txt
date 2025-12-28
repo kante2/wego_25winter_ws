@@ -21,5 +21,11 @@ include_directories(
 catkin_install_python(PROGRAMS
   scripts/lane_detect_perception.py
   scripts/obstacle_avoid_perception.py
+  scripts/aruco_detector_node.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+# Install launch files
+install(DIRECTORY launch/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
 )
