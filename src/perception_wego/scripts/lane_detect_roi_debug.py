@@ -24,12 +24,12 @@ class LaneDetectROIDebug:
         self.roi_top_ratio = rospy.get_param('~roi_top_ratio', 0.3)
         self.roi_bottom_ratio = rospy.get_param('~roi_bottom_ratio', 1.0)
         
-        # HSV 필터 파라미터
+        # HSV 필터 파라미터 (더 완만하게 설정)
         self.hsv_h_low = rospy.get_param('~hsv_h_low', 0)
         self.hsv_h_high = rospy.get_param('~hsv_h_high', 180)
-        self.hsv_s_low = rospy.get_param('~hsv_s_low', 0)
-        self.hsv_s_high = rospy.get_param('~hsv_s_high', 50)
-        self.hsv_v_low = rospy.get_param('~hsv_v_low', 200)
+        self.hsv_s_low = rospy.get_param('~hsv_s_low', 0)      # 채도 낮음: 더 많은 흰색 포함
+        self.hsv_s_high = rospy.get_param('~hsv_s_high', 100)  # 채도 높음: 확대
+        self.hsv_v_low = rospy.get_param('~hsv_v_low', 100)    # 명도 낮춤: 어두운 차선도 포함
         self.hsv_v_high = rospy.get_param('~hsv_v_high', 255)
         
         # 마커 파라미터
@@ -44,17 +44,31 @@ class LaneDetectROIDebug:
             buff_size=2**24
         )
         
-        rospy.loginfo("="*60)
-        rospy.loginfo("Lane Detect ROI Debug Tool")
+        rospy.loginfo("="*70)
+        rospy.loginfo("Lane Detect ROI & HSV Debug Tool")
         rospy.loginfo(f"ROI: top_ratio={self.roi_top_ratio}, bottom_ratio={self.roi_bottom_ratio}")
-        rospy.loginfo("Controls:")
-        rospy.loginfo("  - 'w': top_ratio 증가 (위 더 스킵)")
-        rospy.loginfo("  - 'q': top_ratio 감소 (위 덜 스킵)")
-        rospy.loginfo("  - 's': bottom_ratio 증가 (아래 더 스킵)")
-        rospy.loginfo("  - 'a': bottom_ratio 감소 (아래 덜 스킵)")
-        rospy.loginfo("  - 'r': 초기값 리셋")
+        rospy.loginfo(f"HSV: H[{self.hsv_h_low}-{self.hsv_h_high}] S[{self.hsv_s_low}-{self.hsv_s_high}] V[{self.hsv_v_low}-{self.hsv_v_high}]")
+        rospy.loginfo("="*70)
+        rospy.loginfo("[ROI 조정]")
+        rospy.loginfo("  - 'w': top_ratio +0.05 (위 더 스킵)")
+        rospy.loginfo("  - 'q': top_ratio -0.05 (위 덜 스킵)")
+        rospy.loginfo("  - 's': bottom_ratio +0.05 (아래 더 스킵)")
+        rospy.loginfo("  - 'a': bottom_ratio -0.05 (아래 덜 스킵)")
+        rospy.loginfo("[HSV 조정 - Hue (색상)]")
+        rospy.loginfo("  - 'e': hsv_h_low -5 (더 넓게)")
+        rospy.loginfo("  - 'r': hsv_h_low +5 (더 좁게)")
+        rospy.loginfo("  - 't': hsv_h_high -5 (더 좁게)")
+        rospy.loginfo("  - 'y': hsv_h_high +5 (더 넓게)")
+        rospy.loginfo("[HSV 조정 - Saturation (채도)]")
+        rospy.loginfo("  - 'u': hsv_s_low -5 (더 포함)")
+        rospy.loginfo("  - 'i': hsv_s_low +5 (더 엄격)")
+        rospy.loginfo("[HSV 조정 - Value (명도)]")
+        rospy.loginfo("  - 'o': hsv_v_low -5 (더 어두운 부분 포함)")
+        rospy.loginfo("  - 'p': hsv_v_low +5 (더 밝은 부분만)")
+        rospy.loginfo("[기타]")
+        rospy.loginfo("  - 'x': 초기값 리셋")
         rospy.loginfo("  - ESC: 종료")
-        rospy.loginfo("="*60)
+        rospy.loginfo("="*70)
     
     def image_callback(self, msg):
         try:
@@ -84,6 +98,10 @@ class LaneDetectROIDebug:
             # ROI 제목
             cv2.putText(img_with_roi, f"ROI: top={self.roi_top_ratio:.2f}, bottom={self.roi_bottom_ratio:.2f}",
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            
+            # HSV 정보 표시
+            cv2.putText(img_with_roi, f"HSV: H[{self.hsv_h_low}-{self.hsv_h_high}] S[{self.hsv_s_low}-{self.hsv_s_high}] V[{self.hsv_v_low}-{self.hsv_v_high}]",
+                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
             
             # 스킵되는 영역 표시 (회색)
             if roi_top > 0:
@@ -199,22 +217,62 @@ class LaneDetectROIDebug:
             key = cv2.waitKey(1) & 0xFF
             if key == 27:  # ESC
                 rospy.signal_shutdown("User closed debug window")
+            
+            # ===== ROI 조정 =====
             elif key == ord('w'):  # top_ratio 증가
                 self.roi_top_ratio = min(0.9, self.roi_top_ratio + 0.05)
-                rospy.loginfo(f"ROI top_ratio: {self.roi_top_ratio:.2f}")
+                rospy.loginfo(f"[ROI] top_ratio: {self.roi_top_ratio:.2f}")
             elif key == ord('q'):  # top_ratio 감소
                 self.roi_top_ratio = max(0.0, self.roi_top_ratio - 0.05)
-                rospy.loginfo(f"ROI top_ratio: {self.roi_top_ratio:.2f}")
+                rospy.loginfo(f"[ROI] top_ratio: {self.roi_top_ratio:.2f}")
             elif key == ord('s'):  # bottom_ratio 증가
                 self.roi_bottom_ratio = min(1.0, self.roi_bottom_ratio + 0.05)
-                rospy.loginfo(f"ROI bottom_ratio: {self.roi_bottom_ratio:.2f}")
+                rospy.loginfo(f"[ROI] bottom_ratio: {self.roi_bottom_ratio:.2f}")
             elif key == ord('a'):  # bottom_ratio 감소
                 self.roi_bottom_ratio = max(self.roi_top_ratio + 0.1, self.roi_bottom_ratio - 0.05)
-                rospy.loginfo(f"ROI bottom_ratio: {self.roi_bottom_ratio:.2f}")
-            elif key == ord('r'):  # 리셋
+                rospy.loginfo(f"[ROI] bottom_ratio: {self.roi_bottom_ratio:.2f}")
+            
+            # ===== HSV Hue 조정 =====
+            elif key == ord('e'):  # h_low 감소 (더 넓게)
+                self.hsv_h_low = max(0, self.hsv_h_low - 5)
+                rospy.loginfo(f"[HSV] h_low: {self.hsv_h_low} (더 많은 색상 포함)")
+            elif key == ord('r'):  # h_low 증가 (더 좁게)
+                self.hsv_h_low = min(self.hsv_h_high - 5, self.hsv_h_low + 5)
+                rospy.loginfo(f"[HSV] h_low: {self.hsv_h_low}")
+            elif key == ord('t'):  # h_high 감소 (더 좁게)
+                self.hsv_h_high = max(self.hsv_h_low + 5, self.hsv_h_high - 5)
+                rospy.loginfo(f"[HSV] h_high: {self.hsv_h_high}")
+            elif key == ord('y'):  # h_high 증가 (더 넓게)
+                self.hsv_h_high = min(180, self.hsv_h_high + 5)
+                rospy.loginfo(f"[HSV] h_high: {self.hsv_h_high} (더 많은 색상 포함)")
+            
+            # ===== HSV Saturation 조정 =====
+            elif key == ord('u'):  # s_low 감소 (더 회색 차선 포함)
+                self.hsv_s_low = max(0, self.hsv_s_low - 5)
+                rospy.loginfo(f"[HSV] s_low: {self.hsv_s_low} (회색 차선도 포함)")
+            elif key == ord('i'):  # s_low 증가 (더 엄격)
+                self.hsv_s_low = min(self.hsv_s_high - 5, self.hsv_s_low + 5)
+                rospy.loginfo(f"[HSV] s_low: {self.hsv_s_low}")
+            
+            # ===== HSV Value 조정 =====
+            elif key == ord('o'):  # v_low 감소 (어두운 부분도 포함)
+                self.hsv_v_low = max(0, self.hsv_v_low - 5)
+                rospy.loginfo(f"[HSV] v_low: {self.hsv_v_low} (어두운 차선도 포함)")
+            elif key == ord('p'):  # v_low 증가 (밝은 부분만)
+                self.hsv_v_low = min(self.hsv_v_high - 5, self.hsv_v_low + 5)
+                rospy.loginfo(f"[HSV] v_low: {self.hsv_v_low}")
+            
+            # ===== 리셋 =====
+            elif key == ord('x'):  # 리셋
                 self.roi_top_ratio = 0.3
                 self.roi_bottom_ratio = 1.0
-                rospy.loginfo("ROI reset to default (top=0.3, bottom=1.0)")
+                self.hsv_h_low = 0
+                self.hsv_h_high = 180
+                self.hsv_s_low = 0
+                self.hsv_s_high = 100
+                self.hsv_v_low = 100
+                self.hsv_v_high = 255
+                rospy.loginfo("[RESET] 모든 파라미터를 초기값으로 리셋했습니다")
             
         except Exception as e:
             rospy.logerr(f"Error: {e}")
