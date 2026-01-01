@@ -25,7 +25,7 @@ WEGO 시스템 실행 순서
 
 1단계: 기본 설정 (필수)
 
-ssh wego@192.168.1.11
+ssh -X wego@192.168.1.11
 source ~/wego25_winter_ws/devel/setup.bash
 roslaunch wego bringup.launch
 
@@ -35,7 +35,7 @@ roslaunch wego bringup.launch
 ----------------------------
 
 2단계: 인지(Perception) 노드 시작 (Ver2: BEV + Sliding Window)
-ssh wego@192.168.1.11
+ssh -X wego@192.168.1.11
 source ~/wego25_winter_ws/devel/setup.bash
 roslaunch perception_wego perception_all.launch
 
@@ -46,7 +46,7 @@ roslaunch perception_wego perception_all.launch
 ----------------------------
 
 3단계: 의사결정(Decision) 메인 노드 시작 (Ver2: BEV + PID + 곡률)
-ssh wego@192.168.1.11
+ssh -X wego@192.168.1.11
 source ~/wego25_winter_ws/devel/setup.bash
 roslaunch decision_wego decision_all.launch
 
