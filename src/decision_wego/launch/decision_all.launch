@@ -55,9 +55,12 @@
         <param name="~parking/stop_align_sec" value="1.0"/>
 
         <!-- Crosswalk Mission Parameters -->
+        <param name="~crosswalk/crosswalk_topic" value="/crosswalk_detected"/>
         <param name="~crosswalk/road_width_topic" value="/webot/road_width"/>
         <param name="~crosswalk/lane_steering_topic" value="/webot/steering_offset"/>
         <param name="~crosswalk/lane_speed_topic" value="/webot/lane_speed"/>
+        <param name="~crosswalk/stop_duration" value="5.0"/>
+        <param name="~crosswalk/go_duration" value="2.0"/>
         <param name="~crosswalk/speed_slow" value="0.1"/>
         <param name="~crosswalk/speed_forward" value="0.15"/>
         <param name="~crosswalk/speed_back" value="-0.1"/>

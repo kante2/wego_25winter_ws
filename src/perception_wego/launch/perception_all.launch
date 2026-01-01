@@ -42,4 +42,22 @@
         <param name="~calibration_file" value="$(find usb_cam)/calibration/usb_cam.yaml"/>
     </node>
 
+    <!-- Crosswalk Detection Node (White Line Detection) -->
+    <node pkg="perception_wego" type="crosswalk_perception_node.py" name="crosswalk_perception" 
+          output="screen" respawn="false">
+        <param name="~image_topic" value="/usb_cam/image_raw/compressed"/>
+        <param name="~crosswalk_topic" value="/crosswalk_detected"/>
+        <param name="~white_ratio_topic" value="/perception/white_ratio"/>
+        <param name="~enable_topic" value="/perception/crosswalk/enable"/>
+        <param name="~white_ratio_threshold" value="0.15"/>
+        <param name="~show_window" value="false"/>
+        <param name="~use_yellow_lanes" value="true"/>
+        <param name="~use_white_lanes" value="false"/>
+        <param name="~roi_top_y_ratio" value="0.60"/>
+        <param name="~roi_left_top_ratio" value="0.22"/>
+        <param name="~roi_right_top_ratio" value="0.78"/>
+        <param name="~roi_left_bot_ratio" value="-0.40"/>
+        <param name="~roi_right_bot_ratio" value="1.40"/>
+    </node>
+
 </launch>

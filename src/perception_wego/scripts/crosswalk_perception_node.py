@@ -5,7 +5,7 @@ import rospy
 import cv2
 import numpy as np
 
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from cv_bridge import CvBridge, CvBridgeError
 
 from std_msgs.msg import Bool, Float64
@@ -31,7 +31,7 @@ class CrosswalkPerceptionNode:
         self.use_yellow = bool(rospy.get_param("~use_yellow_lanes", True))
         self.use_white  = bool(rospy.get_param("~use_white_lanes", False))
 
-        self.image_topic = rospy.get_param("~image_topic", "/usb_cam/image_rect_color")
+        self.image_topic = rospy.get_param("~image_topic", "/usb_cam/image_raw/compressed")
 
         self.crosswalk_topic   = rospy.get_param("~crosswalk_topic",   "/crosswalk_detected")
         self.white_ratio_topic = rospy.get_param("~white_ratio_topic", "/perception/white_ratio")
@@ -51,7 +51,8 @@ class CrosswalkPerceptionNode:
         self.pub_white_ratio = rospy.Publisher(self.white_ratio_topic, Float64, queue_size=1)
 
         self.sub_enable = rospy.Subscriber(self.enable_topic, Bool, self.enable_cb, queue_size=1)
-        self.sub_image  = rospy.Subscriber(self.image_topic, Image, self.image_cb, queue_size=2)
+        # CompressedImage 구독
+        self.sub_image  = rospy.Subscriber(self.image_topic, CompressedImage, self.image_cb, queue_size=2)
 
         # ---------- debug window ----------
         self.win_bev = "crosswalk_bev"
@@ -67,12 +68,13 @@ class CrosswalkPerceptionNode:
     def enable_cb(self, msg: Bool):
         self.enabled = bool(msg.data)
 
-    def image_cb(self, msg: Image):
+    def image_cb(self, msg: CompressedImage):
         if not self.enabled:
             return
 
         try:
-            bgr = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            # CompressedImage 디코딩
+            bgr = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except CvBridgeError as e:
             rospy.logwarn_throttle(1.0, "CvBridgeError: %s", str(e))
             return
