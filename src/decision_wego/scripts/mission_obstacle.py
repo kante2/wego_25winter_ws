@@ -99,6 +99,10 @@ class ObstacleAvoidMission:
         self.avoiding = False
         self.clear_count = 0
 
+    def is_active(self):
+        """Obstacle mission is active if obstacle detected and too close"""
+        return self.min_distance < self.safe_distance or self.avoiding
+
     def step(self):
         state = "IDLE"
 

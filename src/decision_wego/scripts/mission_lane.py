@@ -52,6 +52,10 @@ class LaneMission:
     def on_exit(self):
         rospy.loginfo("[mission_lane] exit")
 
+    def is_active(self):
+        """Lane mission is always the fallback (always active)"""
+        return True
+
     def step(self):
         # timeout이면 정지
         if self.last_update is None:

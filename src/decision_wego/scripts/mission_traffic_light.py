@@ -80,6 +80,10 @@ class TrafficLightMission:
         """Fallback speed from lane detection"""
         self.lane_speed = float(msg.data)
     
+    def is_active(self) -> bool:
+        """Traffic light mission is active if RED light detected"""
+        return self.traffic_light_state == "RED"
+
     def step(self, dt=0.05):
         """
         Control step for traffic light mission.
