@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Lane Detection Perception Node for WEGO
+Lane Detection Node for WEGO
 - HSV-based white lane detection
 - Histogram-based lane center finding
 - PID control for steering
 - Publishes steering/speed for other nodes to use
-- Does NOT control motor (decision node does that)
+- Only controls motor when publish_cmd_vel=True
 """
+
 import rospy
-import numpy as np
 import cv2
+import numpy as np
 import yaml
 from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image
-from std_msgs.msg import Float32, Int32
+from std_msgs.msg import Float32, Int32, Bool, String
+from ackermann_msgs.msg import AckermannDriveStamped
 from dynamic_reconfigure.server import Server
 from wego.cfg import LaneDetectConfig
 
 
-class LaneDetectPerception:
+class LaneDetectNode:
     def __init__(self):
-        rospy.init_node('lane_detect_perception', anonymous=True)
+        rospy.init_node('lane_detect_node', anonymous=True)
         
         self.bridge = CvBridge()
         
@@ -30,7 +32,11 @@ class LaneDetectPerception:
         self.prev_error = 0
         
         # Parameters from launch file
+        self.publish_cmd_vel = rospy.get_param("~publish_cmd_vel", False)
         self.debug_view = rospy.get_param("~debug_view", True)
+        
+        # Stop flag (from traffic light or other nodes)
+        self.stop_flag = False
         
         # Load fisheye calibration
         self.camera_matrix, self.dist_coeffs = self._load_calibration()
@@ -43,7 +49,7 @@ class LaneDetectPerception:
         self.img_width = 640
         self.img_height = 480
         
-        # Publishers - perception data only
+        # Publishers - steering/speed for other nodes
         self.pub_steering = rospy.Publisher('/webot/steering_offset', Float32, queue_size=1)
         self.pub_speed = rospy.Publisher('/webot/lane_speed', Float32, queue_size=1)
         self.pub_center_x = rospy.Publisher('/webot/lane_center_x', Int32, queue_size=1)
@@ -51,6 +57,13 @@ class LaneDetectPerception:
         # Image publishers
         self.pub_image = rospy.Publisher('/webot/lane_detect/image', Image, queue_size=1)
         self.pub_mask = rospy.Publisher('/webot/lane_detect/mask', Image, queue_size=1)
+        
+        # cmd_vel publisher (only when publish_cmd_vel is True)
+        if self.publish_cmd_vel:
+            self.cmd_vel_pub = rospy.Publisher('/low_level/ackermann_cmd_mux/input/navigation', 
+                                                AckermannDriveStamped, queue_size=1)
+            # Subscribe to stop flag from traffic light
+            self.sub_stop = rospy.Subscriber('/webot/traffic_stop', Bool, self.stop_callback, queue_size=1)
         
         # Subscriber - wego uses usb_cam
         self.image_sub = rospy.Subscriber(
@@ -62,10 +75,10 @@ class LaneDetectPerception:
         )
         
         rospy.loginfo("="*50)
-        rospy.loginfo("Lane Detect Perception Node initialized")
+        rospy.loginfo("Lane Detect Node initialized")
+        rospy.loginfo(f"publish_cmd_vel: {self.publish_cmd_vel}")
         rospy.loginfo("Steering topic: /webot/steering_offset")
         rospy.loginfo("Speed topic: /webot/lane_speed")
-        rospy.loginfo("Lane Center: /webot/lane_center_x")
         rospy.loginfo("View: rqt_image_view /webot/lane_detect/image")
         rospy.loginfo("="*50)
     
@@ -78,39 +91,32 @@ class LaneDetectPerception:
                 calib = yaml.safe_load(f)
             camera_matrix = np.array(calib['camera_matrix']['data']).reshape(3, 3)
             dist_coeffs = np.array(calib['distortion_coefficients']['data'])
-            rospy.loginfo("[LanePerception] Calibration loaded from %s", calib_file)
+            rospy.loginfo("[LaneDetect] Calibration loaded from %s", calib_file)
             return camera_matrix, dist_coeffs
         except Exception as e:
-            rospy.logwarn("[LanePerception] Calibration load failed: %s", str(e))
-            # Fallback default calibration
-            camera_matrix = np.array([
-                [600.0, 0.0, 320.0],
-                [0.0, 600.0, 240.0],
-                [0.0, 0.0, 1.0]
-            ], dtype=np.float32)
-            dist_coeffs = np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-            return camera_matrix, dist_coeffs
+            rospy.logwarn("[LaneDetect] Calibration load failed: %s", str(e))
+            return None, None
     
     def undistort(self, img):
         """Apply fisheye undistortion"""
         if self.camera_matrix is None:
             return img
         h, w = img.shape[:2]
-        try:
-            new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-                self.camera_matrix, self.dist_coeffs, (w, h), np.eye(3), balance=0.0
-            )
-            return cv2.fisheye.undistortImage(
-                img, self.camera_matrix, self.dist_coeffs, Knew=new_K
-            )
-        except Exception as e:
-            rospy.logwarn_throttle(5, f"[LanePerception] Undistort failed: {e}")
-            return img
+        new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
+            self.camera_matrix, self.dist_coeffs, (w, h), np.eye(3), balance=0.0
+        )
+        return cv2.fisheye.undistortImage(
+            img, self.camera_matrix, self.dist_coeffs, Knew=new_K
+        )
     
     def reconfigure_callback(self, config, level):
         self.config = config
-        rospy.loginfo(f"[LanePerception] Config updated: speed={config.base_speed}, kp={config.kp}, kd={config.kd}")
+        rospy.loginfo(f"[LaneDetect] Config updated: speed={config.base_speed}, kp={config.kp}, kd={config.kd}")
         return config
+    
+    def stop_callback(self, msg):
+        """Callback for stop flag from traffic light"""
+        self.stop_flag = msg.data
     
     def find_lane_center(self, mask):
         """Find lane center using histogram method"""
@@ -216,10 +222,25 @@ class LaneDetectPerception:
             # PID steering control
             steering = self.pid_control(error)
             
-            # Publish steering and speed for decision node
+            # Publish steering and speed for other nodes
             self.pub_steering.publish(Float32(steering))
             self.pub_speed.publish(Float32(self.config.base_speed))
             self.pub_center_x.publish(Int32(center_x))
+            
+            # Publish AckermannDriveStamped if publish_cmd_vel is True
+            if self.publish_cmd_vel:
+                ackermann_msg = AckermannDriveStamped()
+                ackermann_msg.header.stamp = rospy.Time.now()
+                ackermann_msg.header.frame_id = "base_link"
+                
+                if self.stop_flag:
+                    ackermann_msg.drive.speed = 0.0
+                    ackermann_msg.drive.steering_angle = 0.0
+                else:
+                    ackermann_msg.drive.speed = self.config.base_speed
+                    ackermann_msg.drive.steering_angle = steering
+                
+                self.cmd_vel_pub.publish(ackermann_msg)
             
             # Debug visualization
             if self.debug_view and self.pub_image.get_num_connections() > 0:
@@ -262,7 +283,10 @@ class LaneDetectPerception:
             
             # Throttled log
             rospy.loginfo_throttle(1, 
-                f"Center: {center_x} | Error: {error:.0f} | Steer: {steering:.3f} | Speed: {self.config.base_speed:.2f}")
+                f"Center: {center_x} | Error: {error:.0f} | Steer: {np.degrees(steering):.1f}° | Speed: {self.config.base_speed:.2f}")
+                
+        except Exception as e:
+            rospy.logerr("[LaneDetect] Error: %s", str(e))
     
     def run(self):
         rospy.spin()
@@ -270,7 +294,7 @@ class LaneDetectPerception:
 
 if __name__ == '__main__':
     try:
-        node = LaneDetectPerception()
+        node = LaneDetectNode()
         node.run()
     except rospy.ROSInterruptException:
         pass

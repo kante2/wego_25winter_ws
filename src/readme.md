@@ -1,4 +1,9 @@
-🚗 WEGO 실행 순서
+WEGO 실행 순서
+
+ssh wego@192.168.1.11
+ssh -X wego@192.168.1.11
+
+
 1단계: 기본 설정 (필수)
 
 roslaunch wego bringup.launch
@@ -16,4 +21,6 @@ roslaunch perception_wego perception_all.launch
 
 ----------------------------
 3단계: 의사결정(Decision) 메인 노드 시작
-roslaunch decision_wego decision_all./home/wego/catkin_ws/src/perception_wego/debug/camera_yellow_filter_debug.py
+roslaunch decision_wego decision_all
+
+./home/wego/catkin_ws/src/perception_wego/debug/camera_yellow_filter_debug.py
