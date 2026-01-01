@@ -55,10 +55,10 @@ roslaunch decision_wego decision_all.launch
 📊 데이터 흐름
 ========================================
 
-Perception (인지)
-  ├── lane_detect_perception.py
-  │   └── /webot/steering_offset
-  │   └── /webot/lane_speed
+Perception (인지 - Ver2)
+  ├── lane_detect_perception_ver2.py (BEV + Sliding Window)
+  │   ├── /webot/lane_center_px (PointStamped)
+  │   └── /webot/lane_curvature (Float32)
   ├── traffic_light_detect_node.py
   │   └── /webot/traffic_light/state
   └── obstacle_avoid_perception.py
@@ -66,10 +66,11 @@ Perception (인지)
 
          ↓↓↓ main_node.py 구독 ↓↓↓
 
-Decision (의사결정)
+Decision (의사결정 - Ver2)
   └── main_node.py
-      └── /low_level/ackermann_cmd_mux/input/navigation
-          → 모터 제어 (speed, steering_angle)
+      └── mission_lane_ver2.py (PID + 곡률 기반 gain)
+          └── /low_level/ackermann_cmd_mux/input/navigation
+              → 모터 제어 (speed, steering_angle)
 
 ========================================
 🔧 DEBUG 노드 사용 방법
@@ -176,16 +177,18 @@ rqt_image_view /webot/traffic_light/debug
 ↓
 카메라, LiDAR, 모터 드라이버 로드
 
-2️⃣ perception_all.launch (인지/감지)
+2️⃣ perception_all.launch (인지/감지 - Ver2)
 ↓
-- lane_detect_perception.py: 차선 감지 → /webot/steering_offset 발행
-- traffic_light_detect_node.py: 신호등 감지 → /webot/traffic_light/state 발행
+- lane_detect_perception_ver2.py: BEV + 슬라이딩 윈도우 → /webot/lane_center_px, /webot/lane_curvature
+- traffic_light_detect_node.py: 신호등 감지 → /webot/traffic_light/state
 - obstacle_avoid_perception.py: 장애물 감지
 - crosswalk_perception_node.py: 횡단보도 감지
 
-3️⃣ decision_all.launch (main_node.py - 의사결정)
+3️⃣ decision_all.launch (main_node.py - 의사결정 Ver2)
 ↓
 perception 토픽 구독 ← perception_all.launch가 발행한 데이터
+↓
+main_node.py → mission_lane_ver2.py (PID + 곡률 기반 gain)
 ↓
 우선순위 결정 (신호등 > 주차 > 횡단보도 > 장애물 > 차선)
 ↓
