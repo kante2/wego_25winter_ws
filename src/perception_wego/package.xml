@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>perception_wego</name>
+  <version>0.0.1</version>
+  <description>Perception nodes for WEGO</description>
+  <maintainer email="wego@wego.com">WEGO</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>dynamic_reconfigure</depend>
+  <depend>wego_cfg</depend>
+</package>

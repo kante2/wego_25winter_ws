@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 
+    WEGO Perception All Nodes Launch File
+    - Lane Detection Perception
+    - Obstacle Avoidance Perception  
+    - ArUco Marker Detection
+    -->
+
+    <!-- Lane Detection Perception Node -->
+    <node pkg="perception_wego" type="lane_detect_perception.py" name="lane_detect_perception" 
+          output="screen" respawn="false">
+        <param name="~debug_view" value="true"/>
+        <param name="~calibration_file" value="$(find usb_cam)/calibration/usb_cam.yaml"/>
+    </node>
+
+    <!-- Obstacle Avoidance Perception Node -->
+    <node pkg="perception_wego" type="obstacle_avoid_perception.py" name="obstacle_avoid_perception" 
+          output="screen" respawn="false">
+        <param name="~debug_view" value="true"/>
+        <param name="~num_sectors" value="12"/>
+        <param name="~min_distance" value="1.0"/>
+    </node>
+
+    <!-- ArUco Marker Detection Node -->
+    <node pkg="perception_wego" type="aruco_detector_node.py" name="aruco_detector" 
+          output="screen" respawn="false">
+        <param name="~debug_view" value="true"/>
+        <param name="~aruco_dict_id" value="0"/>
+    </node>
+
+    <!-- Traffic Light Detection Node -->
+    <node pkg="perception_wego" type="traffic_light_detect_node.py" name="traffic_light_detect" 
+          output="screen" respawn="false">
+        <param name="~calibration_file" value="$(find usb_cam)/calibration/usb_cam.yaml"/>
+    </node>
+
+</launch>

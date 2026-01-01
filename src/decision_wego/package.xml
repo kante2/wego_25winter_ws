@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>decision_wego</name>
+  <version>0.0.1</version>
+  <description>Decision nodes for WEGO</description>
+  <maintainer email="wego@wego.com">WEGO</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>ackermann_msgs</depend>
+  <depend>geometry_msgs</depend>
+</package>
