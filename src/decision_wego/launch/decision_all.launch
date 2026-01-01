@@ -17,18 +17,13 @@
         <!-- Traffic stop topic for override -->
         <param name="~traffic_stop_topic" value="/webot/traffic_stop"/>
         
-        <!-- Lane Mission Parameters (BEV + PID) -->
+        <!-- Lane Mission Parameters (BEV + Simple Proportional Control) -->
         <param name="~lane/steering_offset_topic" value="/webot/steering_offset"/>
         <param name="~lane/lane_speed_topic" value="/webot/lane_speed"/>
         <param name="~lane/steer_limit" value="0.6"/>
         <param name="~lane/speed_limit" value="1.0"/>
         <param name="~lane/timeout_sec" value="0.5"/>
-        <param name="~lane/pid_kp" value="0.01"/>
-        <param name="~lane/pid_ki" value="0.001"/>
-        <param name="~lane/pid_kd" value="0.0005"/>
-        <param name="~lane/max_integral" value="0.1"/>
-        <param name="~lane/dx_tolerance" value="3.0"/>
-        <param name="~lane/max_abs_dx" value="83.0"/>
+        <param name="~lane/steer_gain" value="0.001"/>
         
         <!-- Obstacle Mission Parameters -->
         <param name="~obstacle/gap_angle_topic" value="/webot/obstacle/gap_angle"/>
