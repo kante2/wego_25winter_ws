@@ -49,13 +49,14 @@ class LaneCenterDetector:
         self.yellow_upper = np.array([38, 255, 230])
         
         # ========== Publishers ==========
-        self.pub_center_point = rospy.Publisher(
-            '/webot/lane_center_px',
-            PointStamped,
+        # Ver1 토픽으로 발행 (BEV 기반)
+        self.pub_steering_offset = rospy.Publisher(
+            '/webot/steering_offset',
+            Float32,
             queue_size=1
         )
-        self.pub_curvature = rospy.Publisher(
-            '/webot/lane_curvature',
+        self.pub_lane_speed = rospy.Publisher(
+            '/webot/lane_speed',
             Float32,
             queue_size=1
         )
@@ -81,8 +82,8 @@ class LaneCenterDetector:
         rospy.loginfo(f"ROI Top Y Ratio: {self.roi_top_y_ratio}")
         rospy.loginfo(f"Num Windows: {self.num_windows}")
         rospy.loginfo(f"Lane Width (px): {self.lane_width_px}")
-        rospy.loginfo("Center topic: /webot/lane_center_px")
-        rospy.loginfo("Curvature topic: /webot/lane_curvature")
+        rospy.loginfo("Steering Offset topic: /webot/steering_offset (BEV-based)")
+        rospy.loginfo("Lane Speed topic: /webot/lane_speed")
         rospy.loginfo("="*60)
     
     def make_roi_polygon(self, h, w):
@@ -385,28 +386,42 @@ class LaneCenterDetector:
             # 5) Compute center point
             center_pt, found = self.compute_center_point(left_centers, right_centers)
             
+            # BEV 중심 x좌표 (320 = 640/2)
+            bev_center_x = 320.0
+            
             if found:
-                # Publish center point
-                pt_msg = PointStamped()
-                pt_msg.header = msg.header
-                pt_msg.header.frame_id = "bev"
-                pt_msg.point.x = center_pt[0]
-                pt_msg.point.y = center_pt[1]
-                pt_msg.point.z = 0.0
-                self.pub_center_point.publish(pt_msg)
+                # dx = center_pt[0] - bev_center_x (오른쪽이 양수)
+                # steering_offset: 좌측 편향 = 음수, 우측 편향 = 양수
+                dx = center_pt[0] - bev_center_x
+                
+                # Publish steering offset (BEV 기반)
+                offset_msg = Float32()
+                offset_msg.data = float(dx)
+                self.pub_steering_offset.publish(offset_msg)
                 
                 # Draw center point
                 cv2.circle(debug_img,
                           (int(center_pt[0]), int(center_pt[1])),
                           6, (255, 0, 255), -1)
+            else:
+                # No lane detected
+                offset_msg = Float32()
+                offset_msg.data = 0.0
+                self.pub_steering_offset.publish(offset_msg)
             
-            # 6) Compute curvature
+            # 6) Compute curvature -> lane speed
             lane_pts = left_centers if len(left_centers) >= len(right_centers) else right_centers
             curvature = self.compute_curvature(lane_pts)
             
-            curv_msg = Float32()
-            curv_msg.data = float(curvature)
-            self.pub_curvature.publish(curv_msg)
+            # 곡률에 따른 속도 조절
+            # 곡률이 크면 (급커브) 속도 감소
+            base_speed = 0.3  # m/s
+            speed_factor = max(0.1, 1.0 - abs(curvature) * 100.0)  # 곡률이 클수록 느림
+            lane_speed = base_speed * speed_factor
+            
+            speed_msg = Float32()
+            speed_msg.data = float(lane_speed)
+            self.pub_lane_speed.publish(speed_msg)
             
             # Debug text
             cv2.putText(debug_img,
@@ -431,8 +446,8 @@ class LaneCenterDetector:
             
             # Throttled log
             rospy.loginfo_throttle(1.0,
-                f"[lane_ver2] Left: {len(left_centers)} | Right: {len(right_centers)} | "
-                f"Curvature: {curvature:.6f}")
+                f"[lane_bev] Left: {len(left_centers)} | Right: {len(right_centers)} | "
+                f"Curvature: {curvature:.6f} | Speed: {lane_speed:.2f} m/s | dx: {dx if found else 'N/A'}")
         
         except cv2.error as e:
             rospy.logwarn(f"[lane_ver2] OpenCV error: {e}")

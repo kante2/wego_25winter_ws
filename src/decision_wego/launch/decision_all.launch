@@ -17,20 +17,18 @@
         <!-- Traffic stop topic for override -->
         <param name="~traffic_stop_topic" value="/webot/traffic_stop"/>
         
-        <!-- Lane Mission Parameters (Ver2 - BEV + Curvature) -->
-        <param name="~lane/center_point_topic" value="/webot/lane_center_px"/>
-        <param name="~lane/curvature_topic" value="/webot/lane_curvature"/>
-        <param name="~lane/bev_center_x_px" value="320.0"/>
-        <param name="~lane/steer_gain_base" value="1.5"/>
-        <param name="~lane/steer_gain_min" value="0.8"/>
-        <param name="~lane/steer_gain_max" value="2.0"/>
-        <param name="~lane/pid_kp" value="0.02"/>
-        <param name="~lane/pid_ki" value="0.0"/>
-        <param name="~lane/pid_kd" value="0.001"/>
-        <param name="~lane/pid_weight" value="0.3"/>
-        <param name="~lane/base_speed_mps" value="0.3"/>
-        <param name="~lane/min_speed_mps" value="0.1"/>
-        <param name="~lane/timeout_sec" value="1.0"/>
+        <!-- Lane Mission Parameters (BEV + PID) -->
+        <param name="~lane/steering_offset_topic" value="/webot/steering_offset"/>
+        <param name="~lane/lane_speed_topic" value="/webot/lane_speed"/>
+        <param name="~lane/steer_limit" value="0.6"/>
+        <param name="~lane/speed_limit" value="1.0"/>
+        <param name="~lane/timeout_sec" value="0.5"/>
+        <param name="~lane/pid_kp" value="0.01"/>
+        <param name="~lane/pid_ki" value="0.001"/>
+        <param name="~lane/pid_kd" value="0.0005"/>
+        <param name="~lane/max_integral" value="0.1"/>
+        <param name="~lane/dx_tolerance" value="3.0"/>
+        <param name="~lane/max_abs_dx" value="83.0"/>
         
         <!-- Obstacle Mission Parameters -->
         <param name="~obstacle/gap_angle_topic" value="/webot/obstacle/gap_angle"/>

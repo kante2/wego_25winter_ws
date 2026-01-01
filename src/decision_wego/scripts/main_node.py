@@ -10,7 +10,7 @@ from enum import IntEnum
 from std_msgs.msg import Bool, String
 from ackermann_msgs.msg import AckermannDriveStamped
 
-import mission_lane_ver2
+import mission_lane
 import mission_obstacle
 import mission_parking
 import mission_crosswalk
@@ -55,17 +55,14 @@ class MainDecisionNode:
         self.sub_stop = rospy.Subscriber(stop_topic, Bool, self._cb_stop, queue_size=1)
 
         # ===== missions =====
-        self.m_lane = mission_lane_ver2.MissionLaneV2()
+        self.m_lane = mission_lane.LaneMission()
         self.m_obstacle = mission_obstacle.ObstacleAvoidMission()
         self.m_parking = mission_parking.ParkingMission()
         self.m_traffic_light = mission_traffic_light.TrafficLightMission()
         self.m_crosswalk = mission_crosswalk.CrosswalkMission()
 
-        # Lane Ver2 초기화
-        pnh_lane = rospy.get_param("~lane")
-        if isinstance(pnh_lane, dict):
-            for key, value in pnh_lane.items():
-                setattr(self.m_lane, key, value)
+        # Lane mission PID 초기화
+        self.m_lane.init_from_params("~lane")
         self.m_obstacle.init_from_params("~obstacle")
         self.m_parking.init_from_params("~parking")
         self.m_traffic_light.init_from_params("~traffic_light")
@@ -148,10 +145,7 @@ class MainDecisionNode:
                 self.pub_parking_done.publish(Bool(data=False))
 
             else:  # LANE
-                self.m_lane.step()  # Ver2는 내부에서 퍼블리시
-                speed = self.m_lane.latest_speed_cmd if hasattr(self.m_lane, 'latest_speed_cmd') else 0.0
-                steer = self.m_lane.latest_steer_cmd if hasattr(self.m_lane, 'latest_steer_cmd') else 0.0
-                dbg = f"lane_v2"
+                speed, steer, dbg = self.m_lane.step()
                 self.pub_parking_state.publish(String(data=mission_parking.ParkingState.IDLE))
                 self.pub_parking_done.publish(Bool(data=False))
 
