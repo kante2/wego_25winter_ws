@@ -103,16 +103,50 @@ class YellowFilterDebug:
             text = f"Yellow Cones: {yellow_count}"
             cv2.putText(result_img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
             
-            # Contour 정보 표시
+            # ===== 콘별 픽셀 정보 추출 =====
+            cone_info = []  # (area, centroid_x, centroid_y, contour)
+            max_area = 0
+            max_cone_idx = -1
+            
             for i, c in enumerate(filtered_contours):
                 area = cv2.contourArea(c)
                 M = cv2.moments(c)
                 if M['m00'] > 0:
                     cx = int(M['m10'] / M['m00'])
                     cy = int(M['m01'] / M['m00'])
+                    cone_info.append((area, cx, cy, c))
+                    
+                    # 최대 면적 추적
+                    if area > max_area:
+                        max_area = area
+                        max_cone_idx = i
+                    
+                    # 원본 이미지에 정보 표시
                     cv2.circle(result_img, (cx, cy), 5, (255, 0, 0), -1)
-                    cv2.putText(result_img, f"{area:.0f}", (cx - 20, cy - 10),
+                    cv2.putText(result_img, f"{area:.0f}px", (cx - 20, cy - 10),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
+            
+            # ===== 가장 큰 콘 정보 강조 표시 =====
+            if max_cone_idx >= 0:
+                max_area, max_cx, max_cy, _ = cone_info[max_cone_idx]
+                # 가장 큰 콘을 빨간색 원으로 표시
+                cv2.circle(result_img, (max_cx, max_cy), 20, (0, 0, 255), 3)
+                cv2.putText(result_img, f"MAX: {max_area:.0f}px", (max_cx - 50, max_cy - 40),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            
+            # ===== 콘별 상세 정보 로그 =====
+            log_str = f"\n{'='*60}\n[Yellow Cones Pixel Analysis]\n"
+            log_str += f"Total Cones: {yellow_count}\n"
+            log_str += f"Max Pixel Area: {max_area:.0f}px\n"
+            log_str += f"{'-'*60}\n"
+            
+            # 면적 내림차순 정렬
+            cone_info_sorted = sorted(cone_info, key=lambda x: x[0], reverse=True)
+            
+            for idx, (area, cx, cy, _) in enumerate(cone_info_sorted, 1):
+                log_str += f"Cone #{idx}: {area:.0f}px (center: {cx}, {cy})\n"
+            
+            log_str += f"{'='*60}\n"
             
             # ========================================
             # 6. 4개의 이미지를 합쳐서 표시
@@ -148,8 +182,7 @@ class YellowFilterDebug:
                 rospy.signal_shutdown("User closed debug window")
             
             # 로그 출력
-            rospy.loginfo_throttle(1.0, f"Yellow Cones: {yellow_count} | "
-                                       f"HSV pixels: {cv2.countNonZero(mask_hsv)} | "
+            rospy.loginfo_throttle(1.0, log_str + f"HSV pixels: {cv2.countNonZero(mask_hsv)} | "
                                        f"After Morphology: {cv2.countNonZero(mask_morphology)} | "
                                        f"After Dilate: {cv2.countNonZero(mask_dilate)}")
             
