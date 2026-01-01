@@ -32,13 +32,24 @@ roslaunch wego bringup.launch
 
 ----------------------------
 
-2단계: 인지(Perception) 노드 시작
+2단계: 인지(Perception) 노드 시작 (Ver2: BEV + Sliding Window)
 roslaunch perception_wego perception_all.launch
+
+- lane_detect_perception_ver2.py: BEV 변환 + 슬라이딩 윈도우 차선 감지
+  → /webot/lane_center_px (PointStamped)
+  → /webot/lane_curvature (Float32)
 
 ----------------------------
 
-3단계: 의사결정(Decision) 메인 노드 시작
+3단계: 의사결정(Decision) 메인 노드 시작 (Ver2: BEV + PID + 곡률)
 roslaunch decision_wego decision_all.launch
+
+- main_node.py: 
+  - mission_lane_ver2.py: BEV 기반 차선 추종
+    * PID + 비선형 gain
+    * 곡률 기반 동적 steering gain
+    * EMA 평활화
+    → /low_level/ackermann_cmd_mux/input/navigation (AckermannDriveStamped)
 
 ========================================
 📊 데이터 흐름

@@ -7,11 +7,18 @@
     - ArUco Marker Detection
     -->
 
-    <!-- Lane Detection Perception Node -->
-    <node pkg="perception_wego" type="lane_detect_perception.py" name="lane_detect_perception" 
+    <!-- Lane Detection Perception Node (Ver2 - BEV + Sliding Window) -->
+    <node pkg="perception_wego" type="lane_detect_perception_ver2.py" name="lane_detect_perception_ver2" 
           output="screen" respawn="false">
-        <param name="~debug_view" value="true"/>
-        <param name="~calibration_file" value="$(find usb_cam)/calibration/usb_cam.yaml"/>
+        <param name="~lane_width_px" value="340.0"/>
+        <param name="~num_windows" value="12"/>
+        <param name="~window_margin" value="80"/>
+        <param name="~center_ema_alpha" value="0.8"/>
+        <param name="~roi_top_y_ratio" value="0.60"/>
+        <param name="~roi_left_top_ratio" value="0.10"/>
+        <param name="~roi_right_top_ratio" value="0.85"/>
+        <param name="~roi_left_bot_ratio" value="-0.45"/>
+        <param name="~roi_right_bot_ratio" value="1.40"/>
     </node>
 
     <!-- Obstacle Avoidance Perception Node -->

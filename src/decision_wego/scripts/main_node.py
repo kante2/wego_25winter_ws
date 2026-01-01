@@ -154,11 +154,8 @@ class MainDecisionNode:
             self.pub_cmd.publish(make_ackermann(speed, steer))
             self.pub_state.publish(String(data=f"{self.state.name} | {dbg}"))
 
-            rospy.loginfo_throttle(
-                1.0,
-                "[main_node] state=%s stop=%d | v=%.2f steer=%.3f | %s",
-                self.state.name, int(self.stop_flag), speed, steer, dbg
-            )
+            # ===== 1초마다 현재 모드 출력 =====
+            rospy.loginfo_throttle(1.0, f"[MODE] {self.state.name}")
 
             rate.sleep()
 
