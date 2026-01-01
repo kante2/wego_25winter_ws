@@ -26,36 +26,34 @@ WEGO 시스템 실행 순서
 1단계: 기본 설정 (필수)
 
 ssh -X wego@192.168.1.11
-source ~/wego25_winter_ws/devel/setup.bash
-roslaunch wego bringup.launch
+source ~/catkin_ws/devel/setup.bash
+roslaunch wego_cfg bringup.launch
 
-저수준 드라이버 로드 (카메라, LiDAR, 모터 제어)
+저수준 드라이버 로드 (카메라, LiDAR, 모터 제어, IMU)
 기본 하드웨어 초기화
 
 ----------------------------
 
 2단계: 인지(Perception) 노드 시작 (Ver2: BEV + Sliding Window)
 ssh -X wego@192.168.1.11
-source ~/wego25_winter_ws/devel/setup.bash
+source ~/catkin_ws/devel/setup.bash
 roslaunch perception_wego perception_all.launch
 
-- lane_detect_perception_ver2.py: BEV 변환 + 슬라이딩 윈도우 차선 감지
-  → /webot/lane_center_px (PointStamped)
-  → /webot/lane_curvature (Float32)
+- lane_detect_perception_ver2.py: BEV 변환 + 슬라이딩 윈도우 차선 감지 (WHITE 차선)
+  → /webot/steering_offset (Float32) - 스티어링 오프셋 (픽셀 단위)
+  → /webot/lane_speed (Float32) - 차선 추종 속도
 
 ----------------------------
 
-3단계: 의사결정(Decision) 메인 노드 시작 (Ver2: BEV + PID + 곡률)
+3단계: 의사결정(Decision) 메인 노드 시작 (Mission Orchestrator)
 ssh -X wego@192.168.1.11
-source ~/wego25_winter_ws/devel/setup.bash
+source ~/catkin_ws/devel/setup.bash
 roslaunch decision_wego decision_all.launch
 
-- main_node.py: 
-  - mission_lane_ver2.py: BEV 기반 차선 추종
-    * PID + 비선형 gain
-    * 곡률 기반 동적 steering gain
-    * EMA 평활화
-    → /low_level/ackermann_cmd_mux/input/navigation (AckermannDriveStamped)
+- main_node.py: 모든 mission을 우선순위 기반으로 조율
+  * 각 mission은 perception 토픽을 구독하고 step()에서 (speed, steer, debug) 반환
+  * 우선순위: PARKING > TRAFFIC_LIGHT > CROSSWALK > OBSTACLE > LANE
+  → /low_level/ackermann_cmd_mux/input/navigation (AckermannDriveStamped)
 
 ========================================
 📊 데이터 흐름
@@ -181,22 +179,28 @@ rqt_image_view /webot/traffic_light/debug
 
 1️⃣ bringup.launch (하드웨어 초기화)
 ↓
-카메라, LiDAR, 모터 드라이버 로드
+카메라, LiDAR, 모터 제어, IMU, Ackermann MUX 로드
 
-2️⃣ perception_all.launch (인지/감지 - Ver2)
+2️⃣ perception_all.launch (인지/감지 - Ver2: BEV + Sliding Window)
 ↓
-- lane_detect_perception_ver2.py: BEV + 슬라이딩 윈도우 → /webot/lane_center_px, /webot/lane_curvature
+- lane_detect_perception_ver2.py: BEV + 슬라이딩 윈도우 → /webot/steering_offset, /webot/lane_speed
 - traffic_light_detect_node.py: 신호등 감지 → /webot/traffic_light/state
 - obstacle_avoid_perception.py: 장애물 감지
 - crosswalk_perception_node.py: 횡단보도 감지
+- aruco_detector_node.py: ArUco 마커 감지
 
-3️⃣ decision_all.launch (main_node.py - 의사결정 Ver2)
+3️⃣ decision_all.launch (main_node.py - Mission Orchestrator)
 ↓
 perception 토픽 구독 ← perception_all.launch가 발행한 데이터
 ↓
-main_node.py → mission_lane_ver2.py (PID + 곡률 기반 gain)
+main_node.py (State Machine)
+├─ mission_lane.py (Simple Proportional Control)
+├─ mission_traffic_light.py (Red Light Stop)
+├─ mission_crosswalk.py (Crosswalk Handling)
+├─ mission_obstacle.py (Obstacle Avoidance)
+└─ mission_parking.py (Parking)
 ↓
-우선순위 결정 (신호등 > 주차 > 횡단보도 > 장애물 > 차선)
+우선순위: PARKING > TRAFFIC_LIGHT > CROSSWALK > OBSTACLE > LANE
 ↓
 /low_level/ackermann_cmd_mux/input/navigation 발행 (모터 제어)
 ↓
