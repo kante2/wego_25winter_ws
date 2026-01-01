@@ -31,11 +31,11 @@
         <param name="~obstacle/min_distance_topic" value="/webot/obstacle/min_distance"/>
         <param name="~obstacle/lane_steering_topic" value="/webot/steering_offset"/>
         <param name="~obstacle/lane_speed_topic" value="/webot/lane_speed"/>
-        <param name="~obstacle/safe_distance" value="0.5"/>
-        <param name="~obstacle/stop_distance" value="0.2"/>
-        <param name="~obstacle/avoid_speed" value="0.2"/>
-        <param name="~obstacle/max_steering" value="0.5"/>
-        <param name="~obstacle/steering_gain" value="0.02"/>
+        <param name="~obstacle/safe_distance" value="0.7"/>
+        <param name="~obstacle/stop_distance" value="0.15"/>
+        <param name="~obstacle/avoid_speed" value="0.25"/>
+        <param name="~obstacle/max_steering" value="0.6"/>
+        <param name="~obstacle/steering_gain" value="0.035"/>
         <param name="~obstacle/clear_threshold" value="20"/>
         
         <!-- Parking Mission Parameters -->
