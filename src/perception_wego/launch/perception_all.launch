@@ -29,4 +29,10 @@
         <param name="~aruco_dict_id" value="0"/>
     </node>
 
+    <!-- Traffic Light Detection Node -->
+    <node pkg="perception_wego" type="traffic_light_detect_node.py" name="traffic_light_detect" 
+          output="screen" respawn="false">
+        <param name="~calibration_file" value="$(find usb_cam)/calibration/usb_cam.yaml"/>
+    </node>
+
 </launch>

@@ -10,13 +10,15 @@ import mission_lane
 import mission_obstacle
 import mission_parking
 import mission_crosswalk
+import mission_traffic_light
 
 
 class MissionState(IntEnum):
     LANE = 0
     OBSTACLE = 1
     PARKING = 2
-    CROSSWALK = 3
+    TRAFFIC_LIGHT = 3
+    CROSSWALK = 4
 
 
 def make_ackermann(speed: float, steer: float) -> AckermannDriveStamped:
@@ -52,11 +54,13 @@ class MainDecisionNode:
         self.m_lane = mission_lane.LaneMission()
         self.m_obstacle = mission_obstacle.ObstacleAvoidMission()
         self.m_parking = mission_parking.ParkingMission()
+        self.m_traffic_light = mission_traffic_light.TrafficLightMission()
         self.m_crosswalk = mission_crosswalk.CrosswalkMission()
 
         self.m_lane.init_from_params("~lane")
         self.m_obstacle.init_from_params("~obstacle")
         self.m_parking.init_from_params("~parking")
+        self.m_traffic_light.init_from_params("~traffic_light")
         self.m_crosswalk.init_from_params("~crosswalk")
 
         self.state = MissionState.LANE
@@ -70,25 +74,31 @@ class MainDecisionNode:
 
     def _decide_state(self) -> MissionState:
         """
-        Priority: Marker(PARKING) > CROSSWALK > OBSTACLE > LANE
-        - PARKING: parking mission이 IDLE이 아닌 상태(=트리거되었거나 수행중/완료)면 유지
-        - CROSSWALK: crosswalk mission이 IDLE이 아닌 상태면 유지
-        - OBSTACLE: min_distance < safe_distance 이거나 avoiding 진행중이면
+        Priority: Marker(PARKING) > TRAFFIC_LIGHT(RED) > CROSSWALK > OBSTACLE > LANE
+        - PARKING: parking mission is triggered/active
+        - TRAFFIC_LIGHT: traffic light is RED (must stop)
+        - CROSSWALK: crosswalk mission is active
+        - OBSTACLE: obstacle avoidance required
+        - LANE: default lane following
         """
-        # 1) parking first
+        # 1) parking first (highest priority)
         if self.m_parking.is_active():
             return MissionState.PARKING
 
-        # 2) crosswalk second
+        # 2) traffic light second (RED light is critical safety)
+        if self.m_traffic_light.is_active():
+            return MissionState.TRAFFIC_LIGHT
+
+        # 3) crosswalk third
         if self.m_crosswalk.is_active():
             return MissionState.CROSSWALK
 
-        # 3) obstacle third
+        # 4) obstacle third
         # mission_obstacle.py 내부 상태 사용 (이전 답변의 모듈 기준)
         if (self.m_obstacle.min_distance < self.m_obstacle.safe_distance) or self.m_obstacle.avoiding:
             return MissionState.OBSTACLE
 
-        # 4) default lane
+        # 5) default lane
         return MissionState.LANE
 
     def spin(self):
@@ -110,16 +120,22 @@ class MainDecisionNode:
                 self.pub_parking_state.publish(String(data=self.m_parking.state))
                 self.pub_parking_done.publish(Bool(data=bool(self.m_parking.done)))
 
+            elif self.state == MissionState.TRAFFIC_LIGHT:
+                speed, steer, dbg = self.m_traffic_light.step()
+                # parking debug topic is idle
+                self.pub_parking_state.publish(String(data=mission_parking.ParkingState.IDLE))
+                self.pub_parking_done.publish(Bool(data=False))
+
             elif self.state == MissionState.CROSSWALK:
                 speed, steer, dbg = self.m_crosswalk.step()
-                # parking debug topic은 그냥 IDLE로 유지
+                # parking debug topic is idle
                 self.pub_parking_state.publish(String(data=mission_parking.ParkingState.IDLE))
                 self.pub_parking_done.publish(Bool(data=False))
 
             elif self.state == MissionState.OBSTACLE:
                 speed, steer, dbg = self.m_obstacle.step()
 
-                # parking debug topic은 그냥 IDLE로 유지
+                # parking debug topic is idle
                 self.pub_parking_state.publish(String(data=mission_parking.ParkingState.IDLE))
                 self.pub_parking_done.publish(Bool(data=False))
 

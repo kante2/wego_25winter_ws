@@ -25,6 +25,8 @@ catkin_install_python(PROGRAMS
   scripts/mission_lane.py
   scripts/mission_obstacle.py
   scripts/mission_parking.py
+  scripts/mission_crosswalk.py
+  scripts/mission_traffic_light.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
