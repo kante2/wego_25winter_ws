@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Yellow Lane Filter Debug Node
-- BEV 변환 후 노란색 필터 시각화
-- 전체 프레임 대비 노란색 픽셀 비율 계산
+White Lane Filter Debug Node
+- BEV 변환 후 흰색 필터 시각화
+- 전체 프레임 대비 흰색 픽셀 비율 계산
 - 실시간 HSV 범위 조정 (trackbar)
 """
 
@@ -15,9 +15,9 @@ from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Float32
 
 
-class YellowFilterDebugger:
+class WhiteFilterDebugger:
     def __init__(self):
-        rospy.init_node('yellow_filter_debug', anonymous=True)
+        rospy.init_node('white_filter_debug', anonymous=True)
         
         self.bridge = CvBridge()
         
@@ -29,13 +29,13 @@ class YellowFilterDebugger:
         self.roi_right_bot_ratio = rospy.get_param('~roi_right_bot_ratio', 1.40)
         
         # ========== HSV Range (Tunable) ==========
-        # Yellow lane: H: 18-38, S: 100-255, V: 110-230
-        self.h_lower = 18
-        self.h_upper = 38
-        self.s_lower = 100
-        self.s_upper = 255
-        self.v_lower = 110
-        self.v_upper = 230
+        # White lane: H: 0-180, S: 0-30, V: 200-255 (inha25-winter-ros 기준)
+        self.h_lower = 0
+        self.h_upper = 180
+        self.s_lower = 0
+        self.s_upper = 30
+        self.v_lower = 200
+        self.v_upper = 255
         
         # ========== Subscriber ==========
         self.sub_image = rospy.Subscriber(
@@ -47,8 +47,8 @@ class YellowFilterDebugger:
         )
         
         # ========== Publisher ==========
-        self.pub_yellow_ratio = rospy.Publisher(
-            '/debug/yellow_ratio',
+        self.pub_white_ratio = rospy.Publisher(
+            '/debug/white_ratio',
             Float32,
             queue_size=1
         )
@@ -58,14 +58,14 @@ class YellowFilterDebugger:
         cv2.namedWindow('ROI Polygon', cv2.WINDOW_NORMAL)
         cv2.namedWindow('BEV Image', cv2.WINDOW_NORMAL)
         cv2.namedWindow('HSV', cv2.WINDOW_NORMAL)
-        cv2.namedWindow('Yellow Mask', cv2.WINDOW_NORMAL)
+        cv2.namedWindow('White Mask', cv2.WINDOW_NORMAL)
         cv2.namedWindow('HSV Range Control', cv2.WINDOW_NORMAL)
         
         cv2.resizeWindow('Original', 640, 480)
         cv2.resizeWindow('ROI Polygon', 640, 480)
         cv2.resizeWindow('BEV Image', 640, 480)
         cv2.resizeWindow('HSV', 640, 480)
-        cv2.resizeWindow('Yellow Mask', 640, 480)
+        cv2.resizeWindow('White Mask', 640, 480)
         cv2.resizeWindow('HSV Range Control', 500, 300)
         
         # ========== Trackbars for HSV tuning ==========
@@ -77,7 +77,7 @@ class YellowFilterDebugger:
         cv2.createTrackbar('V Upper', 'HSV Range Control', self.v_upper, 255, self.on_v_upper)
         
         rospy.loginfo("="*70)
-        rospy.loginfo("Yellow Filter Debug Node Started")
+        rospy.loginfo("White Lane Filter Debug Node Started")
         rospy.loginfo("Current HSV Range:")
         rospy.loginfo(f"  H: [{self.h_lower:3d}, {self.h_upper:3d}]")
         rospy.loginfo(f"  S: [{self.s_lower:3d}, {self.s_upper:3d}]")
@@ -171,22 +171,22 @@ class YellowFilterDebugger:
         # ===== 3. Convert to HSV =====
         hsv = cv2.cvtColor(bev_bgr, cv2.COLOR_BGR2HSV)
         
-        # ===== 4. Apply yellow filter with trackbar values =====
+        # ===== 4. Apply white filter with trackbar values =====
         lower = np.array([self.h_lower, self.s_lower, self.v_lower])
         upper = np.array([self.h_upper, self.s_upper, self.v_upper])
         mask = cv2.inRange(hsv, lower, upper)
         
-        # ===== 5. Calculate yellow pixel ratio =====
+        # ===== 5. Calculate white pixel ratio =====
         total_pixels = h * w
-        yellow_pixels = cv2.countNonZero(mask)
-        yellow_ratio = (yellow_pixels / total_pixels) * 100.0
+        white_pixels = cv2.countNonZero(mask)
+        white_ratio = (white_pixels / total_pixels) * 100.0
         
         # ===== 6. Morphological operations =====
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         mask_processed = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         
         # ===== 7. Create visualization =====
-        # Yellow mask with contours
+        # White mask with contours
         mask_vis = cv2.cvtColor(mask_processed, cv2.COLOR_GRAY2BGR)
         contours, _ = cv2.findContours(mask_processed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cv2.drawContours(mask_vis, contours, -1, (0, 255, 0), 2)
@@ -202,9 +202,9 @@ class YellowFilterDebugger:
         
         # Add statistics to images
         stats_text = [
-            f"Yellow Pixels: {yellow_pixels}",
+            f"White Pixels: {white_pixels}",
             f"Total Pixels: {total_pixels}",
-            f"Yellow Ratio: {yellow_ratio:.2f}%"
+            f"White Ratio: {white_ratio:.2f}%"
         ]
         
         # Add stats to original
@@ -230,19 +230,19 @@ class YellowFilterDebugger:
         cv2.imshow('ROI Polygon', roi_vis)
         cv2.imshow('BEV Image', bev_vis)
         cv2.imshow('HSV', hsv_vis)
-        cv2.imshow('Yellow Mask', mask_vis_copy)
+        cv2.imshow('White Mask', mask_vis_copy)
         
         # ===== 9. Log and publish =====
         rospy.loginfo_throttle(1.0,
-            f"[Yellow Filter] Ratio: {yellow_ratio:.2f}% | "
-            f"Pixels: {yellow_pixels}/{total_pixels} | "
+            f"[White Lane Filter] Ratio: {white_ratio:.2f}% | "
+            f"Pixels: {white_pixels}/{total_pixels} | "
             f"H:[{self.h_lower}-{self.h_upper}] "
             f"S:[{self.s_lower}-{self.s_upper}] "
             f"V:[{self.v_lower}-{self.v_upper}]")
         
         msg_ratio = Float32()
-        msg_ratio.data = float(yellow_ratio)
-        self.pub_yellow_ratio.publish(msg_ratio)
+        msg_ratio.data = float(white_ratio)
+        self.pub_white_ratio.publish(msg_ratio)
         
         # Press 'q' to quit
         if cv2.waitKey(1) & 0xFF == ord('q'):

@@ -44,9 +44,9 @@ class LaneCenterDetector:
         self.roi_left_bot_ratio = rospy.get_param('~roi_left_bot_ratio', -0.45)
         self.roi_right_bot_ratio = rospy.get_param('~roi_right_bot_ratio', 1.40)
         
-        # HSV range for yellow lane detection
-        self.yellow_lower = np.array([18, 100, 110])
-        self.yellow_upper = np.array([38, 255, 230])
+        # HSV range for WHITE lane detection (inha25-winter-ros 기준)
+        self.white_lower = np.array([0, 0, 200])
+        self.white_upper = np.array([180, 30, 255])
         
         # ========== Publishers ==========
         # Ver1 토픽으로 발행 (BEV 기반)
@@ -144,12 +144,12 @@ class LaneCenterDetector:
     
     def binarize_lanes(self, bgr):
         """
-        Convert BGR to HSV and create binary mask for yellow lanes
+        Convert BGR to HSV and create binary mask for white lanes
         """
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
         
-        # Yellow color range
-        mask_y = cv2.inRange(hsv, self.yellow_lower, self.yellow_upper)
+        # White color range
+        mask_y = cv2.inRange(hsv, self.white_lower, self.white_upper)
         
         # Morphological operations
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
