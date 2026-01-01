@@ -292,6 +292,7 @@ class LaneDetectNode:
         rospy.spin()
 
 
+# kkk
 if __name__ == '__main__':
     try:
         node = LaneDetectNode()
