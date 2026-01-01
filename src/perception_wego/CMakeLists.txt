@@ -20,6 +20,7 @@ include_directories(
 
 catkin_install_python(PROGRAMS
   scripts/lane_detect_perception.py
+  scripts/lane_detect_perception_ver2.py
   scripts/obstacle_avoid_perception.py
   scripts/aruco_detector_node.py
   scripts/traffic_light_detect_node.py
