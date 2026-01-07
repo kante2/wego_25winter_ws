@@ -15,7 +15,7 @@ import cv2 as cv
 import numpy as np
 import yaml
 from cv_bridge import CvBridge
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import CompressedImage, Image, LaserScan
 from std_msgs.msg import Float32, Int32, Bool, String
 from ackermann_msgs.msg import AckermannDriveStamped
 from dynamic_reconfigure.server import Server
@@ -50,6 +50,11 @@ class LaneFollow:
             buff_size=2**24
         )
 
+        # LiDAR obstacle detection
+        self.sub_scan = rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size=1)
+        self.obstacle_safe_distance = rospy.get_param('~obstacle_safe_distance', 0.5)
+        self.obstacle_stop_distance = rospy.get_param('~obstacle_stop_distance', 0.2)
+
         self.debug_publisher1 = rospy.Publisher('/binary_LaneFollow',Image,queue_size = 10)
         self.debug_publisher2 = rospy.Publisher('/sliding_window_debug',Image,queue_size = 10)
         self.debug_publisher3 = rospy.Publisher('/lane_follow_debug',Image,queue_size = 10)
@@ -62,6 +67,10 @@ class LaneFollow:
 
         # Stop flag (from traffic light or other nodes)
         self.stop_flag = False
+        
+        # LiDAR data for obstacle detection
+        self.ranges = None
+        self.angle_increment = 0
 
         # Load fisheye calibration
         self.camera_matrix, self.dist_coeffs = self._load_calibration()
@@ -116,6 +125,7 @@ class LaneFollow:
         rospy.loginfo(f"publish_cmd_vel: {self.publish_cmd_vel}")
         rospy.loginfo("Steering topic: /webot/steering_offset")
         rospy.loginfo("Speed topic: /webot/lane_speed")
+        rospy.loginfo(f"LiDAR obstacle detection: safe_distance={self.obstacle_safe_distance}m")
         rospy.loginfo("View: rqt_image_view /webot/lane_detect/image")
         rospy.loginfo("="*50)
        
@@ -174,6 +184,48 @@ class LaneFollow:
     def stop_callback(self, msg):
         """Callback for stop flag from traffic light"""
         self.stop_flag = msg.data
+
+    def scan_callback(self, msg):
+        """Callback for LiDAR scan data - obstacle detection"""
+        self.ranges = np.array(msg.ranges)
+        self.angle_increment = msg.angle_increment
+        
+        # Check front obstacle distance (±30 degrees)
+        min_front_distance = self._get_min_front_distance()
+        
+        # If obstacle detected within safe distance, set stop flag
+        if min_front_distance < self.obstacle_safe_distance:
+            rospy.logwarn_throttle(1.0, f"[LaneFollow] Obstacle detected! Distance: {min_front_distance:.3f}m (threshold: {self.obstacle_safe_distance}m)")
+            self.stop_flag = True
+        else:
+            self.stop_flag = False
+    
+    def _get_min_front_distance(self):
+        """Get minimum distance in front (±30 degrees)"""
+        if self.ranges is None or self.angle_increment == 0:
+            return 10.0
+        
+        scan_angle = 30.0
+        total_points = len(self.ranges)
+        center_idx = 0
+        points_per_degree = 1.0 / np.degrees(self.angle_increment)
+        
+        # Calculate front sector (±30 degrees)
+        start_idx = int(center_idx - scan_angle * points_per_degree)
+        end_idx = int(center_idx + scan_angle * points_per_degree)
+        
+        start_idx = max(0, min(start_idx, total_points - 1))
+        end_idx = max(0, min(end_idx, total_points - 1))
+        
+        if start_idx > end_idx:
+            start_idx, end_idx = end_idx, start_idx
+        
+        sector_ranges = self.ranges[start_idx:end_idx + 1]
+        
+        # Filter out invalid ranges (0 or too far)
+        valid = sector_ranges[(sector_ranges > 0.01) & (sector_ranges < 10.0)]
+        
+        return np.min(valid) if len(valid) > 0 else 10.0
 
     def image_callback(self,msg):
         if self.config is None:
