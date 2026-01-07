@@ -140,23 +140,27 @@ class ObstacleAvoidMission:
                 self.clear_count = 0
                 return 0.0, 0.0, f"YELLOW_CONE_EMERGENCY min={self.min_distance:.3f}m"
             
-            # 상황 2: 5cm~50cm → 하드하게 회피 (gap_angle 사용)
+            # 상황 2: 5cm~50cm → 하드하게 회피
             if self.min_distance < self.safe_distance:
                 self.avoiding = True
                 self.clear_count = 0
 
-                # 거리가 가까울수록 더 강한 회피
                 proximity_ratio = 1.0 - (self.min_distance / self.safe_distance)
                 dynamic_gain = self.steering_gain * (1.0 + 2.0 * proximity_ratio)
                 
-                # gap_angle 기반 회피
-                steering = -dynamic_gain * self.gap_angle
+                # ✅ FIX: gap_angle이 0이면 콘의 위치를 yellow_count 기반으로 추정
+                if abs(self.gap_angle) < 3.0 and self.yellow_count > 0:
+                    # 콘이 보이지만 중앙에 있음 → 우측으로 회피
+                    effective_gap_angle = 25.0
+                else:
+                    effective_gap_angle = self.gap_angle
+                
+                steering = -dynamic_gain * effective_gap_angle
                 steering = float(np.clip(steering, -self.max_steering, self.max_steering))
                 
-                # 거리가 가까울수록 빠른 회피
                 dynamic_speed = self.avoid_speed * (0.5 + 1.5 * proximity_ratio)
                 
-                state = f"YELLOW_AVOID dist={self.min_distance:.3f}m gap={self.gap_angle:.1f}° steer={steering:.3f}"
+                state = f"YELLOW_AVOID dist={self.min_distance:.3f}m cones={self.yellow_count} gap={self.gap_angle:.1f}° steer={steering:.3f}"
                 return dynamic_speed, steering, state
             
             # 상황 3: 50cm 이상 & 회피 중 → 지연 복귀
