@@ -1,0 +1,20 @@
+# decision_wego/config/lane.yaml
+
+# ===== HSV WHITE lane threshold (OpenCV HSV: H 0~180, S/V 0~255) =====
+hsv_h_low: 0
+hsv_h_high: 180
+hsv_s_low: 0
+hsv_s_high: 30
+hsv_v_low: 200
+hsv_v_high: 255
+
+# ===== Stanley-like steering gains =====
+base_speed: 0.4      # (기존 코드에서 speed 0.4 고정이었으니, 동일하게 두고 시작 추천)
+k: 0.005
+yaw_k: 1.0
+
+# ===== Sliding window =====
+masked_pixel: 30
+
+# ===== Right-lane-only mode center offset =====
+right_center_offset_px: 120

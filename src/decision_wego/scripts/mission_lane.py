@@ -12,9 +12,9 @@ from wego_cfg.cfg import LaneDetectConfig
 
 class LaneMission:
     """
-    Lane Following Mission
+    Lane Following Mission (dh_lanefollow 제어 로직 동일)
     - main_node에서 step() 함수로 호출됨
-    - Subscriber로 차선 중앙 정보를 받아 내부 상태 업데이트
+    - Subscriber로 차선 중앙(center_x)과 yaw를 받아 내부 상태 업데이트
     - step()에서 (speed, steer, debug_str)을 리턴
     """
     
@@ -63,7 +63,7 @@ class LaneMission:
         self.latest_center_x = msg.data
     
     def _yaw_callback(self, msg):
-        """차선 기울기(yaw) 수신"""
+        """차선 기울기(yaw) 수신 (Perception에서 polyfit 기울기 기반 계산)"""
         self.latest_yaw = msg.data
 
     def step(self):
@@ -71,8 +71,11 @@ class LaneMission:
         main_node가 매 루프마다 호출
         Returns:
             (speed: float, steer: float, debug: str)
+        
+        ✅ dh_lanefollow의 Stanley control 방식 그대로 적용:
+        steering = yaw_k * yaw + arctan2(k * error, speed)
         """
-        # Config가 없으면 기본값 사용
+        # Config가 없으면 기본값 사용 (dh_lanefollow 기본값)
         if self.config is None:
             base_speed = 0.4
             k = 0.005
@@ -86,13 +89,13 @@ class LaneMission:
         if self.latest_center_x is None:
             return 0.0, 0.0, "NO_LANE_DATA"
         
-        # Error 계산 (중앙선 - 이미지 중앙)
+        # ✅ Error 계산 (dh_lanefollow 방식: center_x - img_center)
         error = self.latest_center_x - self.img_center_x
         
-        # ✅ Perception에서 받은 실제 yaw 사용 (polyfit 기울기 기반)
+        # ✅ Yaw는 Perception에서 받은 값 사용 (polyfit 기울기 기반)
         yaw = self.latest_yaw
         
-        # Stanley control
+        # ✅ Stanley control (dh_lanefollow 동일)
         steering = yaw_k * yaw + np.arctan2(k * error, base_speed)
         
         # 디버깅 문자열

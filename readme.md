@@ -6,14 +6,24 @@
 
 ```bash
 # 1단계: 기본 하드웨어 설정 (카메라, LiDAR, 모터 제어)
+source devel/setup.bash
 roslaunch wego bringup.launch
 
 # 2단계: 인지(Perception) 노드 실행
+source devel/setup.bash
 roslaunch perception_wego perception_all.launch
 
 # 3단계: 의사결정(Decision) 메인 노드 실행
+source devel/setup.bash
 roslaunch decision_wego decision_all.launch
+
+# 4
+source devel/setup.bash
+roslaunch decision_wego only_one_webot.launch
+
 ```
+
+# roslaunch decision_wego only_one_webot.launch
 
 ---
 

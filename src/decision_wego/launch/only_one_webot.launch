@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- 
+    Launch file for only_one_webot.py
+    Lane following with obstacle detection and traffic light integration
+    -->
+
+    <!-- Arguments -->
+    <arg name="publish_cmd_vel" default="true" 
+         doc="Whether to publish motor commands directly"/>
+
+    <arg name="debug_view" default="true" 
+         doc="Whether to publish debug visualization topics"/>
+
+    <arg name="obstacle_safe_distance" default="2.0" 
+         doc="Distance (m) to start slowing down for obstacles"/>
+
+    <arg name="obstacle_stop_distance" default="0.5" 
+         doc="Distance (m) for emergency stop"/>
+
+    <arg name="lidar_roi_angle" default="30.0" 
+         doc="LiDAR ROI angle in degrees (±angle from front)"/>
+
+    <arg name="run_rviz" default="false" 
+         doc="Whether to launch RViz for visualization"/>
+    
+    <arg name="avoidance_gain" default="0.6" 
+         doc="Weight for obstacle avoidance angle (0.0~1.0)"/>
+    
+    <arg name="num_sectors" default="9" 
+         doc="Number of sectors to divide LiDAR ROI"/>
+
+    <!-- Lane Following Node -->
+    <node pkg="decision_wego" 
+          type="only_one_webot.py" 
+          name="only_one_webot" 
+          output="screen">
+        
+        <!-- Control Parameters -->
+        <param name="publish_cmd_vel" value="$(arg publish_cmd_vel)"/>
+        <param name="debug_view" value="$(arg debug_view)"/>
+        
+        <!-- Obstacle Detection Parameters -->
+        <param name="obstacle_safe_distance" value="$(arg obstacle_safe_distance)"/>
+        <param name="obstacle_stop_distance" value="$(arg obstacle_stop_distance)"/>
+        <param name="lidar_roi_angle" value="$(arg lidar_roi_angle)"/>
+        <param name="avoidance_gain" value="$(arg avoidance_gain)"/>
+        <param name="num_sectors" value="$(arg num_sectors)"/>
+        
+    </node>
+
+    <!-- Optional: Run dynamic reconfigure GUI -->
+    <!-- Uncomment if you want to tune parameters in real-time -->
+    <!-- <node pkg="rqt_reconfigure" type="rqt_reconfigure" name="rqt_reconfigure"/> -->
+
+    <!-- RViz Visualization -->
+    <node if="$(arg run_rviz)" 
+          pkg="rviz" 
+          type="rviz" 
+          name="rviz" 
+          args="-d $(find decision_wego)/rviz/default.rviz"
+          required="false"/>
+
+</launch>

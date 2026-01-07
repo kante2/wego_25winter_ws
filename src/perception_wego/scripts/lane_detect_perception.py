@@ -9,8 +9,6 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Float32, Int32
 from geometry_msgs.msg import PointStamped
-from dynamic_reconfigure.server import Server
-from wego_cfg.cfg import LaneDetectConfig
 
 class LaneDetectPerception:
     def __init__(self):
@@ -19,10 +17,6 @@ class LaneDetectPerception:
 
         # Parameters
         self.debug_view = rospy.get_param("~debug_view", True)
-        self.config = None
-        
-        # Dynamic Reconfigure
-        self.srv = Server(LaneDetectConfig, self.reconfigure_callback)
         
         # Subscribers
         self.image_sub = rospy.Subscriber(
@@ -35,21 +29,21 @@ class LaneDetectPerception:
 
         # Publishers
         self.pub_center_x = rospy.Publisher('/webot/lane_center_x', Int32, queue_size=1)
-        self.pub_yaw = rospy.Publisher('/webot/lane_yaw', Float32, queue_size=1)
         self.pub_center = rospy.Publisher('/webot/lane_center', PointStamped, queue_size=1)
+        self.pub_yaw = rospy.Publisher('/webot/lane_yaw', Float32, queue_size=1)  # ✅ 추가
         
         if self.debug_view:
             self.pub_binary = rospy.Publisher('/perception/lane_binary', Image, queue_size=1)
             self.pub_sliding = rospy.Publisher('/perception/lane_sliding', Image, queue_size=1)
 
-        # HSV thresholds for white lane
+        # HSV thresholds (dh_lanefollow 동일)
         self.white_lower = np.array([0, 0, 180], dtype=np.uint8)
         self.white_upper = np.array([180, 40, 255], dtype=np.uint8)
 
         # Load calibration
         self.camera_matrix, self.dist_coeffs = self._load_calibration()
 
-        # Warp matrices (same as dh_lanefollow)
+        # Warp matrices (dh_lanefollow 동일)
         self.src_points = np.float32([
             [0, 310],
             [640, 310],
@@ -64,15 +58,9 @@ class LaneDetectPerception:
         ])
         self.warp_mat = cv.getPerspectiveTransform(self.src_points, self.dst_points)
         
-        self.bgr = None
         self.gaussian_sigma = 1
 
         rospy.loginfo("Lane Detect Perception Node Initialized")
-
-    def reconfigure_callback(self, config, level):
-        self.config = config
-        rospy.loginfo(f"[LaneDetectPerception] Config updated: masked_pixel={config.masked_pixel}")
-        return config
 
     def _load_calibration(self):
         try:
@@ -121,9 +109,9 @@ class LaneDetectPerception:
         # 히스토그램 영역 (아래쪽 절반)
         hist_area = np.copy(img[y // 2:, :])
         
-        # 중앙 마스킹 (cfg에서 가져오기)
+        # 중앙 30px 마스킹
         center_x = x // 2
-        mask_width = self.config.masked_pixel if self.config else 30
+        mask_width = 30
         start_col = center_x - (mask_width // 2)
         end_col = center_x + (mask_width // 2) + (mask_width % 2)
         hist_area[:, start_col:end_col] = 0
@@ -175,22 +163,25 @@ class LaneDetectPerception:
         
         return rfit
 
-    def cal_center_from_right(self, rfit):
-        """오른쪽 차선에서 중앙선 계산 (dh_lanefollow 방식)"""
-        a, b = rfit
-        # 오른쪽 차선에서 120px 왼쪽이 중앙선
-        cfit = [a, b - 120]
+    def cal_center_and_yaw_from_right(self, rfit):
+        """
+        오른쪽 차선에서 중앙선과 yaw 계산 (dh_lanefollow 방식 그대로)
+        """
+        # 중앙선 계산: 오른쪽 차선에서 120px 왼쪽
+        a_r, b_r = rfit
+        cfit = [a_r, b_r - 120]
         
-        h, w = 170, 640
-        y_eval = h * 0.75
+        # ROI 높이와 평가 지점
+        h = 170  # ROI 높이 (480-310)
+        y_eval = h * 0.75  # 하단에서 3/4 지점
         
+        # 중앙선 x 좌표
         x_center = cfit[0] * y_eval + cfit[1]
         
-        # ✅ 차선의 실제 기울기 (polyfit 계수 a)
-        dx_dy = cfit[0]
-        yaw = np.arctan(dx_dy)
+        # ✅ Yaw 계산 (dh_lanefollow 방식: arctan2(기울기, 1))
+        yaw = np.arctan2(cfit[0], 1.0)
         
-        return int(x_center), yaw
+        return int(x_center), float(yaw)
 
     def image_callback(self, msg):
         try:
@@ -198,10 +189,10 @@ class LaneDetectPerception:
             if cv_image is None:
                 return
             
-            self.bgr = self.undistort(cv_image)
+            bgr = self.undistort(cv_image)
             
-            # Process
-            warp_img_ori = self.warpping(self.bgr)
+            # Process (dh_lanefollow 동일)
+            warp_img_ori = self.warpping(bgr)
             warp_img = self.roi_set(warp_img_ori)
             g_filtered = self.Gaussian_filter(warp_img)
             white_img = self.white_color_filter_hsv(g_filtered)
@@ -211,11 +202,13 @@ class LaneDetectPerception:
             
             # 오른쪽 차선 검출
             rfit = self.sliding_window_right(white_img)
-            x_center, yaw = self.cal_center_from_right(rfit)
+            
+            # ✅ 중앙선 x 좌표와 yaw 계산 (dh_lanefollow 방식)
+            x_center, yaw = self.cal_center_and_yaw_from_right(rfit)
             
             # Publish
             self.pub_center_x.publish(Int32(x_center))
-            self.pub_yaw.publish(Float32(yaw))
+            self.pub_yaw.publish(Float32(yaw))  # Yaw 발행
             
             point_msg = PointStamped()
             point_msg.header.stamp = rospy.Time.now()

@@ -54,6 +54,7 @@ class LaneFollow:
         self.sub_scan = rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size=1)
         self.obstacle_safe_distance = rospy.get_param('~obstacle_safe_distance', 0.5)
         self.obstacle_stop_distance = rospy.get_param('~obstacle_stop_distance', 0.2)
+        self.lidar_roi_angle = rospy.get_param('~lidar_roi_angle', 30.0)
 
         self.debug_publisher1 = rospy.Publisher('/binary_LaneFollow',Image,queue_size = 10)
         self.debug_publisher2 = rospy.Publisher('/sliding_window_debug',Image,queue_size = 10)
@@ -71,6 +72,15 @@ class LaneFollow:
         # LiDAR data for obstacle detection
         self.ranges = None
         self.angle_increment = 0
+        
+        # Obstacle avoidance parameters
+        self.avoidance_gain = rospy.get_param('~avoidance_gain', 0.6)
+        self.num_sectors = rospy.get_param('~num_sectors', 9)
+        self.yellow_detected = False
+        self.obstacle_in_roi = False
+        self.avoidance_angle = 0.0
+        self.sector_angles = []
+        self.sector_densities = []
 
         # Load fisheye calibration
         self.camera_matrix, self.dist_coeffs = self._load_calibration()
@@ -170,6 +180,24 @@ class LaneFollow:
         hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
         white_hsv = cv.inRange(hsv,self.white_lower,self.white_upper)
         return white_hsv
+    
+    def yellow_color_filter_hsv(self, img):
+        """Yellow lane detection using HSV color space"""
+        hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
+        mask = cv.inRange(hsv, self.yellow_lower, self.yellow_upper)
+        
+        # 노란색 픽셀 비율 계산
+        yellow_pixel_count = cv.countNonZero(mask)
+        total_pixels = mask.shape[0] * mask.shape[1]
+        yellow_ratio = yellow_pixel_count / total_pixels if total_pixels > 0 else 0.0
+        
+        # 노란색이 일정 비율 이상이면 감지
+        self.yellow_detected = (yellow_ratio > 0.01)  # 1% 이상
+        
+        # 5초 간격으로 yellow_ratio 항상 출력
+        rospy.loginfo_throttle(5.0, f"[YellowRatio] {yellow_ratio:.4f} ({yellow_ratio*100:.2f}%) | Detected: {self.yellow_detected}")
+        
+        return mask
 
     def roi_set(self,img):
         roi_img = img[310:480,0:640]
@@ -186,26 +214,53 @@ class LaneFollow:
         self.stop_flag = msg.data
 
     def scan_callback(self, msg):
-        """Callback for LiDAR scan data - obstacle detection"""
+        """Callback for LiDAR scan data - obstacle detection with sector analysis"""
         self.ranges = np.array(msg.ranges)
         self.angle_increment = msg.angle_increment
         
-        # Check front obstacle distance (±30 degrees)
+        # 기본 전방 장애물 거리 체크
         min_front_distance = self._get_min_front_distance()
         
-        # If obstacle detected within safe distance, set stop flag
-        if min_front_distance < self.obstacle_safe_distance:
-            rospy.logwarn_throttle(1.0, f"[LaneFollow] Obstacle detected! Distance: {min_front_distance:.3f}m (threshold: {self.obstacle_safe_distance}m)")
+        # 섹터 분석 수행
+        self.sector_angles, self.sector_densities, self.avoidance_angle = \
+            self._analyze_lidar_sectors(num_sectors=self.num_sectors)
+        
+        # 정지 판단: 노란색 감지 시에는 회피 시도, 아니면 정지
+        if min_front_distance < self.obstacle_stop_distance:
+            # 매우 가까운 경우에만 무조건 정지
+            rospy.logwarn_throttle(1.0, 
+                f"[Emergency Stop] Obstacle too close! Distance: {min_front_distance:.3f}m")
             self.stop_flag = True
+        elif min_front_distance < self.obstacle_safe_distance:
+            # 노란색이 감지되면 회피 시도, 아니면 정지
+            if self.yellow_detected:
+                rospy.loginfo_throttle(1.0, 
+                    f"[Avoidance Mode] Yellow: YES | Obstacle: YES ({min_front_distance:.2f}m) | Avoiding...")
+                self.stop_flag = False  # 회피 가능
+            else:
+                rospy.logwarn_throttle(1.0, 
+                    f"[Stop Mode] Yellow: NO | Obstacle: YES ({min_front_distance:.2f}m) | Stopping...")
+                self.stop_flag = True
         else:
             self.stop_flag = False
+            # 장애물 없을 때도 5초마다 상태 출력
+            if self.yellow_detected:
+                rospy.loginfo_throttle(5.0, f"[Normal] Yellow: YES | Obstacle: NO | Normal driving")
+            else:
+                rospy.loginfo_throttle(5.0, f"[Normal] Yellow: NO | Obstacle: NO | Normal driving")
+        
+        # 디버그 로그
+        if self.obstacle_in_roi and len(self.sector_densities) > 0:
+            rospy.loginfo_throttle(2.0, 
+                f"[AvoidanceVector] Best angle: {np.degrees(self.avoidance_angle):.1f}° "
+                f"(Density: {self.sector_densities[np.argmin(self.sector_densities)]:.2f})")
     
     def _get_min_front_distance(self):
-        """Get minimum distance in front (±30 degrees)"""
+        """Get minimum distance in front (±lidar_roi_angle degrees)"""
         if self.ranges is None or self.angle_increment == 0:
             return 10.0
         
-        scan_angle = 30.0
+        scan_angle = self.lidar_roi_angle  # Use parameter from launch file
         total_points = len(self.ranges)
         center_idx = 0
         points_per_degree = 1.0 / np.degrees(self.angle_increment)
@@ -226,6 +281,69 @@ class LaneFollow:
         valid = sector_ranges[(sector_ranges > 0.01) & (sector_ranges < 10.0)]
         
         return np.min(valid) if len(valid) > 0 else 10.0
+    
+    def _analyze_lidar_sectors(self, num_sectors=9):
+        """
+        LiDAR ROI를 여러 섹터로 나누어 장애물 밀도 분석
+        Returns: (sector_angles, sector_densities, best_angle)
+        """
+        if self.ranges is None or self.angle_increment == 0:
+            return [], [], 0.0
+        
+        # ROI 범위 계산
+        total_points = len(self.ranges)
+        center_index = 0  # RPLiDAR는 일반적으로 0번이 정면
+        points_per_degree = 1.0 / np.degrees(self.angle_increment)
+        half_roi_points = int(self.lidar_roi_angle * points_per_degree)
+        
+        start_idx = max(0, center_index - half_roi_points)
+        end_idx = min(total_points, center_index + half_roi_points)
+        
+        roi_ranges = self.ranges[start_idx:end_idx]
+        
+        # 섹터 분할
+        sector_size = len(roi_ranges) // num_sectors
+        if sector_size == 0:
+            return [], [], 0.0
+        
+        sector_angles = []
+        sector_densities = []
+        
+        for i in range(num_sectors):
+            sector_start = i * sector_size
+            sector_end = (i + 1) * sector_size if i < num_sectors - 1 else len(roi_ranges)
+            sector_data = roi_ranges[sector_start:sector_end]
+            
+            # 섹터 중심 각도 계산 (라디안)
+            sector_center_idx = start_idx + (sector_start + sector_end) // 2
+            sector_angle = (sector_center_idx - center_index) * self.angle_increment
+            sector_angles.append(sector_angle)
+            
+            # 장애물 밀도 계산 (가까운 장애물일수록 높은 가중치)
+            valid = sector_data[(sector_data > 0.01) & (sector_data < 10.0)]
+            
+            if len(valid) > 0:
+                # 거리 역수로 밀도 계산 (가까울수록 큰 값)
+                density = np.sum(1.0 / (valid + 0.1))  # +0.1은 0 division 방지
+            else:
+                density = 0.0
+            
+            sector_densities.append(density)
+        
+        # 장애물이 가장 적은(밀도가 낮은) 섹터 찾기
+        if len(sector_densities) > 0:
+            best_sector_idx = np.argmin(sector_densities)
+            best_angle = sector_angles[best_sector_idx]
+            
+            # 장애물 존재 여부 판단
+            min_distance = np.min(roi_ranges[(roi_ranges > 0.01) & (roi_ranges < 10.0)]) \
+                           if np.any((roi_ranges > 0.01) & (roi_ranges < 10.0)) else 10.0
+            self.obstacle_in_roi = (min_distance < self.obstacle_safe_distance)
+        else:
+            best_angle = 0.0
+            self.obstacle_in_roi = False
+        
+        return sector_angles, sector_densities, best_angle
 
     def image_callback(self,msg):
         if self.config is None:
@@ -513,15 +631,23 @@ class LaneFollow:
         self.warp_img = self.roi_set(self.warp_img_ori)
 
         g_filltered = self.Gaussian_filter(self.warp_img)
+        
+        # 흰색 차선 감지
         self.white_image = self.white_color_filter_hsv(g_filltered)
+        
+        # 노란색 차선 감지 추가
+        yellow_image = self.yellow_color_filter_hsv(g_filltered)
+        
+        # 두 마스크 결합 (OR 연산)
+        combined_mask = cv.bitwise_or(self.white_image, yellow_image)
 
         if self.debug_view:
-            self.debug_publisher1.publish(self.cv_bridge.cv2_to_imgmsg(self.white_image))
+            self.debug_publisher1.publish(self.cv_bridge.cv2_to_imgmsg(combined_mask))
 
-        # lfit,rfit = self.sliding_window(self.white_image)
+        # lfit,rfit = self.sliding_window(combined_mask)
         # self.yaw,self.error,x_center = self.cal_center_line(lfit,rfit)
 
-        rfit = self.sliding_window_right(self.white_image)
+        rfit = self.sliding_window_right(combined_mask)
         self.yaw,self.error= self.cal_center_line_right(rfit)
 
         self.cal_steering(yaw=self.yaw,error=self.error)
