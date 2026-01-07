@@ -2,13 +2,25 @@
 <package format="2">
   <name>decision_wego</name>
   <version>0.0.1</version>
-  <description>Decision nodes for WEGO</description>
-  <maintainer email="wego@wego.com">WEGO</maintainer>
-  <license>BSD</license>
+  <description>Decision layer for WEGO autonomous vehicle</description>
+  
+  <maintainer email="wego@todo.todo">wego</maintainer>
+  <license>MIT</license>
 
   <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- ROS dependencies -->
   <depend>rospy</depend>
   <depend>std_msgs</depend>
-  <depend>ackermann_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>ackermann_msgs</depend>
+  <depend>cv_bridge</depend>
+  
+  <!-- ✅ 추가: dynamic_reconfigure -->
+  <build_depend>dynamic_reconfigure</build_depend>
+  <exec_depend>dynamic_reconfigure</exec_depend>
+
+  <export>
+  </export>
 </package>

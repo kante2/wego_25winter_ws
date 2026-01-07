@@ -1,57 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Lane Detection Perception Node for WEGO
-- HSV-based white lane detection
-- Histogram-based lane center finding
-- Publishes: steering_offset, lane_speed, lane_center_x
-- Does NOT control motor (decision node does that)
-"""
+
 import rospy
+import cv2 as cv
 import numpy as np
-import cv2
 import yaml
 from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Float32, Int32
-from dynamic_reconfigure.server import Server
-from wego.cfg import LaneDetectConfig
-
+from geometry_msgs.msg import PointStamped
 
 class LaneDetectPerception:
     def __init__(self):
-        rospy.init_node('lane_detect_perception', anonymous=True)
-        
-        self.bridge = CvBridge()
-        
-        # PID state
-        self.integral = 0
-        self.prev_error = 0
-        
-        # Parameters from launch file
+        rospy.init_node('lane_detect_perception')
+        self.cv_bridge = CvBridge()
+
+        # Parameters
         self.debug_view = rospy.get_param("~debug_view", True)
         
-        # Load fisheye calibration
-        self.camera_matrix, self.dist_coeffs = self._load_calibration()
-        
-        # Dynamic Reconfigure
-        self.config = None
-        self.srv = Server(LaneDetectConfig, self.reconfigure_callback)
-        
-        # Image dimensions (will be updated from first image)
-        self.img_width = 640
-        self.img_height = 480
-        
-        # Publishers - perception data only
-        self.pub_steering = rospy.Publisher('/webot/steering_offset', Float32, queue_size=1)
-        self.pub_speed = rospy.Publisher('/webot/lane_speed', Float32, queue_size=1)
-        self.pub_center_x = rospy.Publisher('/webot/lane_center_x', Int32, queue_size=1)
-        
-        # Image publishers
-        self.pub_image = rospy.Publisher('/webot/lane_detect/image', Image, queue_size=1)
-        self.pub_mask = rospy.Publisher('/webot/lane_detect/mask', Image, queue_size=1)
-        
-        # Subscriber - wego uses usb_cam
+        # Subscribers
         self.image_sub = rospy.Subscriber(
             '/usb_cam/image_raw/compressed',
             CompressedImage,
@@ -59,17 +26,43 @@ class LaneDetectPerception:
             queue_size=1,
             buff_size=2**24
         )
+
+        # Publishers
+        self.pub_center_x = rospy.Publisher('/webot/lane_center_x', Int32, queue_size=1)
+        self.pub_center = rospy.Publisher('/webot/lane_center', PointStamped, queue_size=1)
         
-        rospy.loginfo("="*50)
-        rospy.loginfo("Lane Detect Perception Node initialized")
-        rospy.loginfo("Steering topic: /webot/steering_offset")
-        rospy.loginfo("Speed topic: /webot/lane_speed")
-        rospy.loginfo("Lane Center: /webot/lane_center_x")
-        rospy.loginfo("View: rqt_image_view /webot/lane_detect/image")
-        rospy.loginfo("="*50)
-    
+        if self.debug_view:
+            self.pub_binary = rospy.Publisher('/perception/lane_binary', Image, queue_size=1)
+            self.pub_sliding = rospy.Publisher('/perception/lane_sliding', Image, queue_size=1)
+
+        # HSV thresholds for white lane
+        self.white_lower = np.array([0, 0, 180], dtype=np.uint8)
+        self.white_upper = np.array([180, 40, 255], dtype=np.uint8)
+
+        # Load calibration
+        self.camera_matrix, self.dist_coeffs = self._load_calibration()
+
+        # Warp matrices (same as dh_lanefollow)
+        self.src_points = np.float32([
+            [0, 310],
+            [640, 310],
+            [0, 480],
+            [640, 480]
+        ])
+        self.dst_points = np.float32([
+            [0, 310],
+            [640, 310],
+            [225, 480],
+            [415, 480]
+        ])
+        self.warp_mat = cv.getPerspectiveTransform(self.src_points, self.dst_points)
+        
+        self.bgr = None
+        self.gaussian_sigma = 1
+
+        rospy.loginfo("Lane Detect Perception Node Initialized")
+
     def _load_calibration(self):
-        """Load fisheye camera calibration"""
         try:
             calib_file = rospy.get_param('~calibration_file',
                 '/home/wego/catkin_ws/src/usb_cam/calibration/usb_cam.yaml')
@@ -77,194 +70,150 @@ class LaneDetectPerception:
                 calib = yaml.safe_load(f)
             camera_matrix = np.array(calib['camera_matrix']['data']).reshape(3, 3)
             dist_coeffs = np.array(calib['distortion_coefficients']['data'])
-            rospy.loginfo("[LanePerception] Calibration loaded from %s", calib_file)
+            rospy.loginfo("Calibration loaded")
             return camera_matrix, dist_coeffs
-        except Exception as e:
-            rospy.logwarn("[LanePerception] Calibration load failed: %s", str(e))
-            # Fallback default calibration
-            camera_matrix = np.array([
-                [600.0, 0.0, 320.0],
-                [0.0, 600.0, 240.0],
-                [0.0, 0.0, 1.0]
-            ], dtype=np.float32)
-            dist_coeffs = np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-            return camera_matrix, dist_coeffs
-    
+        except:
+            rospy.logwarn("Calibration load failed")
+            return None, None
+
     def undistort(self, img):
-        """Apply fisheye undistortion"""
         if self.camera_matrix is None:
             return img
         h, w = img.shape[:2]
-        try:
-            new_K = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-                self.camera_matrix, self.dist_coeffs, (w, h), np.eye(3), balance=0.0
-            )
-            return cv2.fisheye.undistortImage(
-                img, self.camera_matrix, self.dist_coeffs, Knew=new_K
-            )
-        except Exception as e:
-            rospy.logwarn_throttle(5, f"[LanePerception] Undistort failed: {e}")
-            return img
-    
-    def reconfigure_callback(self, config, level):
-        self.config = config
-        rospy.loginfo(f"[LanePerception] Config updated: speed={config.base_speed}, kp={config.kp}, kd={config.kd}")
-        return config
-    
-    def find_lane_center(self, mask):
-        """Find lane center using histogram method"""
-        h, w = mask.shape
+        new_K = cv.fisheye.estimateNewCameraMatrixForUndistortRectify(
+            self.camera_matrix, self.dist_coeffs, (w, h), np.eye(3), balance=0.0
+        )
+        return cv.fisheye.undistortImage(
+            img, self.camera_matrix, self.dist_coeffs, Knew=new_K
+        )
+
+    def warpping(self, img):
+        h, w = img.shape[:2]
+        return cv.warpPerspective(img, self.warp_mat, (w, h))
+
+    def roi_set(self, img):
+        return img[310:480, 0:640]
+
+    def Gaussian_filter(self, img):
+        return cv.GaussianBlur(img, (0, 0), self.gaussian_sigma)
+
+    def white_color_filter_hsv(self, img):
+        hsv = cv.cvtColor(img, cv.COLOR_BGR2HSV)
+        return cv.inRange(hsv, self.white_lower, self.white_upper)
+
+    def sliding_window_right(self, img, n_windows=10, margin=12, minpix=5):
+        """오른쪽 차선 기반 슬라이딩 윈도우 (dh_lanefollow 방식)"""
+        y = img.shape[0]
+        x = img.shape[1]
         
-        # Histogram of bottom half
-        histogram = np.sum(mask[h//2:, :], axis=0)
+        # 히스토그램 영역 (아래쪽 절반)
+        hist_area = np.copy(img[y // 2:, :])
         
-        # Find peaks in left and right regions
-        midpoint = w // 2
-        left_peak = np.argmax(histogram[:midpoint])
-        right_peak = np.argmax(histogram[midpoint:]) + midpoint
+        # 중앙 30px 마스킹
+        center_x = x // 2
+        mask_width = 30
+        start_col = center_x - (mask_width // 2)
+        end_col = center_x + (mask_width // 2) + (mask_width % 2)
+        hist_area[:, start_col:end_col] = 0
         
-        left_val = histogram[left_peak]
-        right_val = histogram[right_peak]
+        # 히스토그램 계산
+        histogram = np.sum(hist_area, axis=0)
+        midpoint = int(histogram.shape[0] / 2)
         
-        min_pixels = self.config.min_pixels if self.config else 500
-        
-        left_detected = left_val > min_pixels
-        right_detected = right_val > min_pixels
-        
-        if left_detected and right_detected:
-            # Both lanes detected - use center
-            center_x = (left_peak + right_peak) // 2
-            detected = True
-        elif left_detected:
-            # Only left lane - offset to right
-            center_x = left_peak + self.config.lane_offset
-            detected = True
-        elif right_detected:
-            # Only right lane - offset to left
-            center_x = right_peak - self.config.lane_offset
-            detected = True
+        # 오른쪽 차선 시작점
+        if sum(histogram[midpoint:]) < 15:
+            rightx_current = midpoint * 2
         else:
-            # No lane detected -> keep center
-            center_x = w // 2
-            detected = False
+            rightx_current = np.argmax(histogram[midpoint:]) + midpoint
         
-        return center_x, detected, left_peak if left_detected else -1, right_peak if right_detected else -1
-    
-    def pid_control(self, error):
-        """PID steering control"""
-        # P term
-        p_term = self.config.kp * error
+        window_height = int(y / n_windows)
+        nz = img.nonzero()
         
-        # I term with anti-windup
-        self.integral += error
-        self.integral = np.clip(self.integral, -1000, 1000)
-        i_term = self.config.ki * self.integral
+        right_lane_inds = []
+        rx, ry = [], []
         
-        # D term
-        d_term = self.config.kd * (error - self.prev_error)
-        self.prev_error = error
+        out_img = np.dstack((img, img, img)) * 255
         
-        # Combined steering
-        steering = p_term + i_term + d_term
-        steering = np.clip(steering, -self.config.max_steering, self.config.max_steering)
+        for window in range(n_windows):
+            win_yl = y - (window + 1) * window_height
+            win_yh = y - window * window_height
+            win_xrl = rightx_current - margin
+            win_xrh = rightx_current + margin
+            
+            cv.rectangle(out_img, (win_xrl, win_yl), (win_xrh, win_yh), (0, 255, 0), 2)
+            
+            good_right_inds = ((nz[0] >= win_yl) & (nz[0] < win_yh) &
+                              (nz[1] >= win_xrl) & (nz[1] < win_xrh)).nonzero()[0]
+            
+            right_lane_inds.append(good_right_inds)
+            
+            if len(good_right_inds) > minpix:
+                rightx_current = int(np.mean(nz[1][good_right_inds]))
+            
+            rx.append(rightx_current)
+            ry.append((win_yl + win_yh) / 2)
         
-        return steering
-    
+        right_lane_inds = np.concatenate(right_lane_inds)
+        rfit = np.polyfit(np.array(ry), np.array(rx), 1)
+        
+        out_img[nz[0][right_lane_inds], nz[1][right_lane_inds]] = [0, 0, 255]
+        
+        if self.debug_view:
+            self.pub_sliding.publish(self.cv_bridge.cv2_to_imgmsg(out_img, encoding="bgr8"))
+        
+        return rfit
+
+    def cal_center_from_right(self, rfit):
+        """오른쪽 차선에서 중앙선 계산 (dh_lanefollow 방식)"""
+        a, b = rfit
+        # 오른쪽 차선에서 120px 왼쪽이 중앙선
+        cfit = [a, b - 120]
+        
+        h, w = 170, 640
+        y_eval = h * 0.75
+        
+        x_center = cfit[0] * y_eval + cfit[1]
+        
+        return int(x_center)
+
     def image_callback(self, msg):
-        if self.config is None:
-            return
-            
         try:
-            # Decompress image
-            np_arr = np.frombuffer(msg.data, np.uint8)
-            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            
+            cv_image = self.cv_bridge.compressed_imgmsg_to_cv2(msg)
             if cv_image is None:
                 return
             
-            # Apply fisheye undistortion
-            cv_image = self.undistort(cv_image)
+            self.bgr = self.undistort(cv_image)
             
-            height, width = cv_image.shape[:2]
-            self.img_width = width
-            self.img_height = height
+            # Process
+            warp_img_ori = self.warpping(self.bgr)
+            warp_img = self.roi_set(warp_img_ori)
+            g_filtered = self.Gaussian_filter(warp_img)
+            white_img = self.white_color_filter_hsv(g_filtered)
             
-            # Extract ROI (ratio-based)
-            roi_top = int(height * self.config.roi_top_ratio)
-            roi_bottom = int(height * self.config.roi_bottom_ratio)
-            roi = cv_image[roi_top:roi_bottom, :]
+            if self.debug_view:
+                self.pub_binary.publish(self.cv_bridge.cv2_to_imgmsg(white_img, encoding="mono8"))
             
-            # Convert to HSV and create mask
-            hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-            lower = np.array([self.config.hsv_h_low, self.config.hsv_s_low, self.config.hsv_v_low])
-            upper = np.array([self.config.hsv_h_high, self.config.hsv_s_high, self.config.hsv_v_high])
-            mask = cv2.inRange(hsv, lower, upper)
+            # 오른쪽 차선 검출
+            rfit = self.sliding_window_right(white_img)
+            x_center = self.cal_center_from_right(rfit)
             
-            # Apply morphology to clean up
-            kernel = np.ones((5, 5), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            # Publish
+            self.pub_center_x.publish(Int32(x_center))
             
-            # Find lane center using histogram
-            center_x, lane_detected, left_x, right_x = self.find_lane_center(mask)
+            point_msg = PointStamped()
+            point_msg.header.stamp = rospy.Time.now()
+            point_msg.header.frame_id = "camera"
+            point_msg.point.x = float(x_center)
+            point_msg.point.y = 0.0
+            point_msg.point.z = 0.0
+            self.pub_center.publish(point_msg)
             
-            # Calculate error (from image center)
-            image_center = width // 2
-            error = center_x - image_center if lane_detected else 0
-            
-            # PID steering control
-            steering = self.pid_control(error)
-            
-            # Publish steering and speed for decision node
-            self.pub_steering.publish(Float32(steering))
-            self.pub_speed.publish(Float32(self.config.base_speed))
-            self.pub_center_x.publish(Int32(center_x))
-            
-            # Debug visualization
-            if self.debug_view and self.pub_image.get_num_connections() > 0:
-                vis_img = roi.copy()
-                
-                # Draw lane center
-                if lane_detected:
-                    cv2.circle(vis_img, (center_x, roi.shape[0]//2), 10, (0, 255, 0), -1)
-                    cv2.line(vis_img, (center_x, 0), (center_x, roi.shape[0]), (0, 255, 0), 2)
-                
-                # Draw detected peaks
-                if left_x >= 0:
-                    cv2.circle(vis_img, (left_x, roi.shape[0]//2), 8, (255, 0, 0), -1)
-                if right_x >= 0:
-                    cv2.circle(vis_img, (right_x, roi.shape[0]//2), 8, (0, 0, 255), -1)
-                
-                # Status text
-                status_text = f"Steering: {steering:.2f} | Speed: {self.config.base_speed:.2f}"
-                cv2.putText(vis_img, status_text, (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                
-                # ✅ ROI 정보 표시
-                roi_info = f"ROI: top={self.config.roi_top_ratio:.1%} bottom={self.config.roi_bottom_ratio:.1%}"
-                cv2.putText(vis_img, roi_info, (10, 50),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-                
-                lane_status = "DETECTED" if lane_detected else "NOT DETECTED"
-                cv2.putText(vis_img, f"Lane: {lane_status}", (10, 70),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0) if lane_detected else (0, 0, 255), 2)
-                
-                self.pub_image.publish(self.bridge.cv2_to_imgmsg(vis_img, "bgr8"))
-            
-            # Publish mask image if anyone is listening
-            if self.pub_mask.get_num_connections() > 0:
-                self.pub_mask.publish(self.bridge.cv2_to_imgmsg(mask, "mono8"))
-                
         except Exception as e:
             rospy.logerr(f"[LanePerception] Error: {e}")
-    
-    def run(self):
-        rospy.spin()
-
 
 if __name__ == '__main__':
     try:
         node = LaneDetectPerception()
-        node.run()
+        rospy.spin()
     except rospy.ROSInterruptException:
         pass
