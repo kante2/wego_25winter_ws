@@ -16,4 +16,4 @@ roslaunch perception_wego perception_all.launch
 
 ----------------------------
 3단계: 의사결정(Decision) 메인 노드 시작
-roslaunch decision_wego decision_all./home/wego/catkin_ws/src/perception_wego/debug/camera_yellow_filter_debug.py
+roslaunch decision_wego decision_all
