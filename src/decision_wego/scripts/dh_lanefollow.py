@@ -19,7 +19,7 @@ from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Float32, Int32, Bool, String
 from ackermann_msgs.msg import AckermannDriveStamped
 from dynamic_reconfigure.server import Server
-from wego.cfg import LaneDetectConfig
+from wego_cfg.cfg import LaneDetectConfig
 import math
 import time
 
