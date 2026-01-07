@@ -29,6 +29,7 @@ class LaneMission:
         
         # Subscribers (init_from_params에서 생성됨)
         self.sub_center = None
+        self.sub_yaw = None
         
         # Dynamic Reconfigure
         self.srv = Server(LaneDetectConfig, self.reconfigure_callback)
@@ -43,18 +44,27 @@ class LaneMission:
         main_node가 호출: subscriber 생성 (cfg는 reconfigure_callback에서 관리)
         """
         center_topic = rospy.get_param(f"{ns}/center_topic", "/webot/lane_center_x")
+        yaw_topic = rospy.get_param(f"{ns}/yaw_topic", "/webot/lane_yaw")
         
         # Subscriber 생성
         self.sub_center = rospy.Subscriber(
             center_topic, Int32, self._center_callback, queue_size=1
         )
+        self.sub_yaw = rospy.Subscriber(
+            yaw_topic, Float32, self._yaw_callback, queue_size=1
+        )
         
         rospy.loginfo(f"[LaneMission] initialized")
         rospy.loginfo(f"[LaneMission] subscribed to {center_topic}")
+        rospy.loginfo(f"[LaneMission] subscribed to {yaw_topic}")
 
     def _center_callback(self, msg):
         """차선 중앙 x 좌표 수신"""
         self.latest_center_x = msg.data
+    
+    def _yaw_callback(self, msg):
+        """차선 기울기(yaw) 수신"""
+        self.latest_yaw = msg.data
 
     def step(self):
         """
@@ -79,15 +89,14 @@ class LaneMission:
         # Error 계산 (중앙선 - 이미지 중앙)
         error = self.latest_center_x - self.img_center_x
         
-        # ROI 기준 yaw 계산 (간단히 error 기반으로 근사)
-        # dh_lanefollow는 polyfit 기울기를 사용하지만, 여기선 error 비율로 근사
-        yaw = np.arctan2(error, 170.0 * 0.75)  # ROI 높이 170px의 3/4 지점 기준
+        # ✅ Perception에서 받은 실제 yaw 사용 (polyfit 기울기 기반)
+        yaw = self.latest_yaw
         
         # Stanley control
         steering = yaw_k * yaw + np.arctan2(k * error, base_speed)
         
         # 디버깅 문자열
-        debug = f"cx={self.latest_center_x} err={error:.1f} steer={steering:.3f}"
+        debug = f"cx={self.latest_center_x} yaw={yaw:.3f} err={error:.1f} steer={steering:.3f}"
         
         return base_speed, steering, debug
 

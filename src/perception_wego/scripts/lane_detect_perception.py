@@ -35,6 +35,7 @@ class LaneDetectPerception:
 
         # Publishers
         self.pub_center_x = rospy.Publisher('/webot/lane_center_x', Int32, queue_size=1)
+        self.pub_yaw = rospy.Publisher('/webot/lane_yaw', Float32, queue_size=1)
         self.pub_center = rospy.Publisher('/webot/lane_center', PointStamped, queue_size=1)
         
         if self.debug_view:
@@ -185,7 +186,11 @@ class LaneDetectPerception:
         
         x_center = cfit[0] * y_eval + cfit[1]
         
-        return int(x_center)
+        # ✅ 차선의 실제 기울기 (polyfit 계수 a)
+        dx_dy = cfit[0]
+        yaw = np.arctan(dx_dy)
+        
+        return int(x_center), yaw
 
     def image_callback(self, msg):
         try:
@@ -206,10 +211,11 @@ class LaneDetectPerception:
             
             # 오른쪽 차선 검출
             rfit = self.sliding_window_right(white_img)
-            x_center = self.cal_center_from_right(rfit)
+            x_center, yaw = self.cal_center_from_right(rfit)
             
             # Publish
             self.pub_center_x.publish(Int32(x_center))
+            self.pub_yaw.publish(Float32(yaw))
             
             point_msg = PointStamped()
             point_msg.header.stamp = rospy.Time.now()
