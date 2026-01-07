@@ -9,6 +9,8 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Float32, Int32
 from geometry_msgs.msg import PointStamped
+from dynamic_reconfigure.server import Server
+from wego_cfg.cfg import LaneDetectConfig
 
 class LaneDetectPerception:
     def __init__(self):
@@ -17,6 +19,10 @@ class LaneDetectPerception:
 
         # Parameters
         self.debug_view = rospy.get_param("~debug_view", True)
+        self.config = None
+        
+        # Dynamic Reconfigure
+        self.srv = Server(LaneDetectConfig, self.reconfigure_callback)
         
         # Subscribers
         self.image_sub = rospy.Subscriber(
@@ -61,6 +67,11 @@ class LaneDetectPerception:
         self.gaussian_sigma = 1
 
         rospy.loginfo("Lane Detect Perception Node Initialized")
+
+    def reconfigure_callback(self, config, level):
+        self.config = config
+        rospy.loginfo(f"[LaneDetectPerception] Config updated: masked_pixel={config.masked_pixel}")
+        return config
 
     def _load_calibration(self):
         try:
@@ -109,9 +120,9 @@ class LaneDetectPerception:
         # 히스토그램 영역 (아래쪽 절반)
         hist_area = np.copy(img[y // 2:, :])
         
-        # 중앙 30px 마스킹
+        # 중앙 마스킹 (cfg에서 가져오기)
         center_x = x // 2
-        mask_width = 30
+        mask_width = self.config.masked_pixel if self.config else 30
         start_col = center_x - (mask_width // 2)
         end_col = center_x + (mask_width // 2) + (mask_width % 2)
         hist_area[:, start_col:end_col] = 0

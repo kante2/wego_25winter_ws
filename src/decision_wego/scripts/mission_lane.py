@@ -6,6 +6,8 @@ import numpy as np
 from std_msgs.msg import Int32, Float32
 from ackermann_msgs.msg import AckermannDriveStamped
 from geometry_msgs.msg import PointStamped
+from dynamic_reconfigure.server import Server
+from wego_cfg.cfg import LaneDetectConfig
 
 
 class LaneMission:
@@ -17,10 +19,8 @@ class LaneMission:
     """
     
     def __init__(self):
-        # Parameters (init_from_params에서 로드됨)
-        self.base_speed = 0.4
-        self.k = 0.005
-        self.yaw_k = 1.0
+        # Config (reconfigure_callback에서 동적 설정됨)
+        self.config = None
         
         # State
         self.latest_center_x = None
@@ -30,14 +30,18 @@ class LaneMission:
         # Subscribers (init_from_params에서 생성됨)
         self.sub_center = None
         
+        # Dynamic Reconfigure
+        self.srv = Server(LaneDetectConfig, self.reconfigure_callback)
+    
+    def reconfigure_callback(self, config, level):
+        self.config = config
+        rospy.loginfo(f"[LaneMission] Config updated: speed={config.base_speed}, k={config.k}, yaw_k={config.yaw_k}")
+        return config
+        
     def init_from_params(self, ns="~lane"):
         """
-        main_node가 호출: 파라미터 로드 및 subscriber 생성
+        main_node가 호출: subscriber 생성 (cfg는 reconfigure_callback에서 관리)
         """
-        self.base_speed = rospy.get_param(f"{ns}/base_speed", 0.4)
-        self.k = rospy.get_param(f"{ns}/k", 0.005)
-        self.yaw_k = rospy.get_param(f"{ns}/yaw_k", 1.0)
-        
         center_topic = rospy.get_param(f"{ns}/center_topic", "/webot/lane_center_x")
         
         # Subscriber 생성
@@ -45,7 +49,7 @@ class LaneMission:
             center_topic, Int32, self._center_callback, queue_size=1
         )
         
-        rospy.loginfo(f"[LaneMission] init: speed={self.base_speed}, k={self.k}, yaw_k={self.yaw_k}")
+        rospy.loginfo(f"[LaneMission] initialized")
         rospy.loginfo(f"[LaneMission] subscribed to {center_topic}")
 
     def _center_callback(self, msg):
@@ -58,6 +62,16 @@ class LaneMission:
         Returns:
             (speed: float, steer: float, debug: str)
         """
+        # Config가 없으면 기본값 사용
+        if self.config is None:
+            base_speed = 0.4
+            k = 0.005
+            yaw_k = 1.0
+        else:
+            base_speed = self.config.base_speed
+            k = self.config.k
+            yaw_k = self.config.yaw_k
+        
         # 차선 정보가 없으면 정지
         if self.latest_center_x is None:
             return 0.0, 0.0, "NO_LANE_DATA"
@@ -70,12 +84,12 @@ class LaneMission:
         yaw = np.arctan2(error, 170.0 * 0.75)  # ROI 높이 170px의 3/4 지점 기준
         
         # Stanley control
-        steering = self.yaw_k * yaw + np.arctan2(self.k * error, self.base_speed)
+        steering = yaw_k * yaw + np.arctan2(k * error, base_speed)
         
         # 디버깅 문자열
         debug = f"cx={self.latest_center_x} err={error:.1f} steer={steering:.3f}"
         
-        return self.base_speed, steering, debug
+        return base_speed, steering, debug
 
     def is_active(self):
         """
