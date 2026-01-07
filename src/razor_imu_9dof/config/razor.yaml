@@ -1,5 +1,5 @@
 ## USB port
-port: /dev/ttyACM1
+port: /dev/serial/by-id/usb-SparkFun_SFE_9DOF-D21_0672C52F5154315431202020FF072B34-if00
 topic: imu
 frame_id: base_imu_link
 

@@ -9,7 +9,7 @@
   <arg unless="$(arg debug)" name="launch_prefix" value="" />
 
   <!-- VESC driver parameters -->
-  <arg name="port" default="/dev/ttyVesc" />
+  <arg name="port" default="/dev/serial/by-id/usb-STMicroelectronics_ChibiOS_RT_Virtual_COM_Port_304-if00" />
 
   <!-- VESC driver node -->
   <node pkg="vesc_driver" type="vesc_driver_node" name="$(arg node_name)"
