@@ -19,7 +19,12 @@ roslaunch decision_wego decision_all.launch
 
 # 4
 source devel/setup.bash
-roslaunch decision_wego only_one_webot.launch
+roslaunch decision_wego only_one_webot.
+
+
+# 5.
+source devel/setup.bash
+roslaunch decision_wego parking_with_aruco.launch
 
 ```
 

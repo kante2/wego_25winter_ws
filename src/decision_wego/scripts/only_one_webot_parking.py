@@ -16,7 +16,7 @@ import numpy as np
 import yaml
 from cv_bridge import CvBridge
 from sensor_msgs.msg import CompressedImage, Image, LaserScan
-from std_msgs.msg import Float32, Int32, Bool, String
+from std_msgs.msg import Float32, Int32, Bool, String, Float32MultiArray
 from ackermann_msgs.msg import AckermannDriveStamped
 from dynamic_reconfigure.server import Server
 from wego_cfg.cfg import LaneDetectConfig
@@ -24,7 +24,7 @@ import math
 import time
 
 
-class LaneFollow:
+class LaneFollow_2:
     def __init__(self):
         rospy.init_node('lanefollow')
         self.config = None
@@ -81,6 +81,32 @@ class LaneFollow:
         self.avoidance_angle = 0.0
         self.sector_angles = []
         self.sector_densities = []
+        
+        # ===== PARKING PARAMETERS (from mission_parking.py) =====
+        self.parking_active = False
+        self.parking_state = "IDLE"
+        self.parking_phase_start_time = None
+        self.parking_triggered = False
+        
+        # Parking sequence parameters (속도 증가 - VESC 최소 동작 속도 고려)
+        self.speed_slow = rospy.get_param('~parking_speed_slow', 0.35)  # 0.15 -> 0.35
+        self.speed_reverse = rospy.get_param('~parking_speed_reverse', -0.35)  # -0.13 -> -0.35
+        self.steering_angle_parking = rospy.get_param('~parking_steering_angle', 0.5)
+        
+        self.forward_time = rospy.get_param('~parking_forward_time', 1.5)
+        self.reverse_right_time = rospy.get_param('~parking_reverse_right_time', 3.0)
+        self.reverse_left_time = rospy.get_param('~parking_reverse_left_time', 3.0)
+        self.final_forward_time = rospy.get_param('~parking_final_forward_time', 1.0)
+        
+        self.stop_before_sec = rospy.get_param('~parking_stop_before_sec', 1.0)
+        self.stop_align_sec = rospy.get_param('~parking_stop_align_sec', 1.0)
+        
+        self.trigger_distance = rospy.get_param('~parking_trigger_distance', 0.5)
+        self.target_marker_id = rospy.get_param('~parking_target_marker_id', 0)
+        
+        # Subscribe to ArUco marker info
+        aruco_topic = rospy.get_param('~aruco_marker_info_topic', '/webot/aruco/marker_info')
+        self.sub_aruco = rospy.Subscriber(aruco_topic, Float32MultiArray, self._aruco_callback, queue_size=1)
 
         # Load fisheye calibration
         self.camera_matrix, self.dist_coeffs = self._load_calibration()
@@ -131,22 +157,12 @@ class LaneFollow:
         
         
         rospy.loginfo("="*50)
-        rospy.loginfo("lanefollow node initialized")
+        rospy.loginfo("lanefollow_parking node initialized")
         rospy.loginfo(f"publish_cmd_vel: {self.publish_cmd_vel}")
         rospy.loginfo("Steering topic: /webot/steering_offset")
-        """Load fisheye camera calibration"""
-        try:
-            calib_file = rospy.get_param('~calibration_file',
-                '/home/wego/catkin_ws/src/usb_cam/calibration/usb_cam.yaml')
-            with open(calib_file, 'r') as f:
-                calib = yaml.safe_load(f)
-            camera_matrix = np.array(calib['camera_matrix']['data']).reshape(3, 3)
-            dist_coeffs = np.array(calib['distortion_coefficients']['data'])
-            rospy.loginfo("[LaneDetect] Calibration loaded from %s", calib_file)
-            return camera_matrix, dist_coeffs
-        except Exception as e:
         rospy.loginfo("Speed topic: /webot/lane_speed")
         rospy.loginfo(f"LiDAR obstacle detection: safe_distance={self.obstacle_safe_distance}m")
+        rospy.loginfo(f"Parking: target_marker_id={self.target_marker_id}, trigger_dist={self.trigger_distance}m")
         rospy.loginfo("View: rqt_image_view /webot/lane_detect/image")
         rospy.loginfo("="*50)
        
@@ -205,8 +221,11 @@ class LaneFollow:
         # 노란색이 일정 비율 이상이면 감지
         self.yellow_detected = (yellow_ratio > 0.01)  # 1% 이상
         
-        # 5초 간격으로 yellow_ratio 항상 출력
-        rospy.loginfo_throttle(5.0, f"[YellowRatio] {yellow_ratio:.4f} ({yellow_ratio*100:.2f}%) | Detected: {self.yellow_detected}")
+        # **디버그: 0.5초마다 상세 정보 출력**
+        rospy.loginfo_throttle(0.5, 
+            f"[YELLOW_DEBUG] Ratio: {yellow_ratio*100:.2f}% | "
+            f"Detected: {self.yellow_detected} | "
+            f"stop_flag: {self.stop_flag}")
         
         return mask
 
@@ -223,6 +242,110 @@ class LaneFollow:
     def stop_callback(self, msg):
         """Callback for stop flag from traffic light"""
         self.stop_flag = msg.data
+    
+    def _aruco_callback(self, msg):
+        """
+        Callback for ArUco marker detection
+        msg.data = [id1, dist1, id2, dist2, ...]
+        """
+        if self.parking_active or self.parking_triggered or self.parking_state != "IDLE":
+            return
+        
+        data = list(msg.data)
+        if len(data) < 2:
+            return
+        
+        for i in range(0, len(data) - 1, 2):
+            marker_id = int(data[i])
+            dist = float(data[i + 1])
+            
+            if marker_id == self.target_marker_id:
+                rospy.loginfo_throttle(0.5,
+                    f"[Parking] ArUco ID:{marker_id} dist={dist:.3f}m (trigger<={self.trigger_distance}m)")
+                
+                if dist <= self.trigger_distance:
+                    rospy.logwarn("="*60)
+                    rospy.logwarn(f"[PARKING TRIGGERED] ArUco ID {marker_id} detected at {dist:.3f}m!")
+                    rospy.logwarn("Starting hardcoded parking sequence...")
+                    rospy.logwarn("="*60)
+                    self.parking_triggered = True
+                    self.parking_active = True
+                    self._set_parking_state("STOP_BEFORE")
+                return
+    
+    def _set_parking_state(self, new_state):
+        """Helper to transition parking states"""
+        rospy.loginfo(f"[Parking] State: {self.parking_state} -> {new_state}")
+        self.parking_state = new_state
+        self.parking_phase_start_time = rospy.Time.now()
+    
+    def _parking_elapsed(self):
+        """Get elapsed time in current parking phase"""
+        if self.parking_phase_start_time is None:
+            return 0.0
+        return (rospy.Time.now() - self.parking_phase_start_time).to_sec()
+    
+    def execute_parking_sequence(self):
+        """
+        Execute hardcoded parking maneuver (from mission_parking.py)
+        Returns: (speed, steering, is_done)
+        """
+        if not self.parking_active:
+            return 0.0, 0.0, False
+        
+        elapsed = self._parking_elapsed()
+        
+        # STOP_BEFORE: Initial stop
+        if self.parking_state == "STOP_BEFORE":
+            if elapsed > self.stop_before_sec:
+                self._set_parking_state("FORWARD_PASS")
+            rospy.loginfo_throttle(0.5, f"[Parking] STOP_BEFORE {elapsed:.1f}/{self.stop_before_sec}s")
+            return 0.0, 0.0, False
+        
+        # FORWARD_PASS: Move forward
+        elif self.parking_state == "FORWARD_PASS":
+            if elapsed > self.forward_time:
+                self._set_parking_state("STOP_ALIGN")
+            rospy.loginfo_throttle(0.5, f"[Parking] FORWARD_PASS {elapsed:.1f}/{self.forward_time}s")
+            return self.speed_slow, 0.0, False
+        
+        # STOP_ALIGN: Stop to align
+        elif self.parking_state == "STOP_ALIGN":
+            if elapsed > self.stop_align_sec:
+                self._set_parking_state("REVERSE_RIGHT")
+            rospy.loginfo_throttle(0.5, f"[Parking] STOP_ALIGN {elapsed:.1f}/{self.stop_align_sec}s")
+            return 0.0, 0.0, False
+        
+        # REVERSE_RIGHT: Reverse with right steering
+        elif self.parking_state == "REVERSE_RIGHT":
+            if elapsed >= self.reverse_right_time:
+                self._set_parking_state("REVERSE_LEFT")
+            rospy.loginfo_throttle(0.5, f"[Parking] REVERSE_RIGHT {elapsed:.1f}/{self.reverse_right_time}s")
+            return self.speed_reverse, +self.steering_angle_parking, False
+        
+        # REVERSE_LEFT: Reverse with left steering
+        elif self.parking_state == "REVERSE_LEFT":
+            if elapsed >= self.reverse_left_time:
+                self._set_parking_state("FORWARD_STRAIGHT")
+            rospy.loginfo_throttle(0.5, f"[Parking] REVERSE_LEFT {elapsed:.1f}/{self.reverse_left_time}s")
+            return self.speed_reverse, -self.steering_angle_parking, False
+        
+        # FORWARD_STRAIGHT: Final forward adjustment
+        elif self.parking_state == "FORWARD_STRAIGHT":
+            if elapsed > self.final_forward_time:
+                self._set_parking_state("DONE")
+            rospy.loginfo_throttle(0.5, f"[Parking] FORWARD_STRAIGHT {elapsed:.1f}/{self.final_forward_time}s")
+            return self.speed_slow, 0.0, False
+        
+        # DONE: Parking complete
+        elif self.parking_state == "DONE":
+            rospy.logwarn("="*60)
+            rospy.logwarn("[PARKING COMPLETE] Vehicle parked successfully!")
+            rospy.logwarn("="*60)
+            return 0.0, 0.0, True
+        
+        # Fallback
+        return 0.0, 0.0, False
 
     def scan_callback(self, msg):
         """Callback for LiDAR scan data - obstacle detection with sector analysis"""
@@ -564,7 +687,25 @@ class LaneFollow:
         k = self.config.k
         yaw_k = self.config.yaw_k
 
-        steering = yaw_k*yaw + np.arctan2(k*error,base_speed)
+        # 기본 Stanley 제어
+        stanley_angle = yaw_k*yaw + np.arctan2(k*error,base_speed)
+        
+        # 노란색 + 장애물 감지 시 회피 로직 활성화
+        if self.yellow_detected and self.obstacle_in_roi:
+            # 회피 각도를 조향각에 반영 (가중치 적용)
+            steering = (1 - self.avoidance_gain) * stanley_angle + self.avoidance_gain * self.avoidance_angle
+            
+            rospy.loginfo_throttle(1.0, 
+                f"[Avoidance Active] Stanley: {np.degrees(stanley_angle):.1f}°, "
+                f"Avoidance: {np.degrees(self.avoidance_angle):.1f}°, "
+                f"Final: {np.degrees(steering):.1f}°")
+        else:
+            # 일반 차선 추종
+            steering = stanley_angle
+        
+        # 조향각 제한
+        steering = np.clip(steering, -0.34, 0.34)
+        
         self.steer = steering
 
         self.pub_steering.publish(Float32(self.steer))
@@ -635,6 +776,32 @@ class LaneFollow:
 
 
     def main(self):
+        # ===== 주차 시퀀스가 활성화되면 최우선 실행 =====
+        if self.parking_active:
+            speed, steering, is_done = self.execute_parking_sequence()
+            
+            # **디버그: 실제 명령값 출력**
+            rospy.loginfo_throttle(0.3, 
+                f"[Parking CMD] speed={speed:.3f}, steering={steering:.3f}")
+            
+            # 주차 명령 발행
+            msg = AckermannDriveStamped()
+            msg.header.stamp = rospy.Time.now()
+            msg.header.frame_id = 'Parking'
+            msg.drive.speed = speed
+            msg.drive.steering_angle = steering
+            
+            if self.publish_cmd_vel:
+                self.cmd_vel_pub.publish(msg)
+            
+            # 주차 완료 시 플래그 해제
+            if is_done:
+                self.parking_active = False
+                rospy.loginfo("[Main] Parking complete, resuming normal operation...")
+            
+            return  # 주차 중에는 차선 추종 무시
+        
+        # ===== 일반 차선 추종 로직 =====
         if self.bgr is None:
             return
         
@@ -690,7 +857,7 @@ class LaneFollow:
     
 if __name__ == '__main__':
     try:
-        lf = LaneFollow()
+        lf = LaneFollow_2()
         rate = rospy.Rate(30)  # 30Hz
 
         while not rospy.is_shutdown():
