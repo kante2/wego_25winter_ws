@@ -12,9 +12,9 @@
          doc="Whether to publish debug visualization topics"/>
     
     <!-- Obstacle parameters -->
-    <arg name="obstacle_safe_distance" default="2.0" 
+    <arg name="obstacle_safe_distance" default="0.5" 
          doc="Distance (m) to start slowing down for obstacles"/>
-    <arg name="obstacle_stop_distance" default="1.5" 
+    <arg name="obstacle_stop_distance" default="0.5" 
          doc="Distance (m) for emergency stop"/>
     <arg name="lidar_roi_angle" default="30.0" 
          doc="LiDAR ROI angle in degrees (±angle from front)"/>
@@ -37,9 +37,9 @@
          doc="Time for forward pass (seconds)"/>
     <arg name="parking_reverse_right_time" default="3.0" 
          doc="Time for reverse with right turn (seconds)"/>
-    <arg name="parking_reverse_left_time" default="3.0" 
+    <arg name="parking_reverse_left_time" default="0.01" 
          doc="Time for reverse with left turn (seconds)"/>
-    <arg name="parking_final_forward_time" default="1.0" 
+    <arg name="parking_final_forward_time" default="0.01" 
          doc="Time for final forward adjustment (seconds)"/>
     
     <arg name="parking_stop_before_sec" default="1.0" 
@@ -47,7 +47,7 @@
     <arg name="parking_stop_align_sec" default="1.0" 
          doc="Stop duration for alignment (seconds)"/>
     
-    <arg name="parking_trigger_distance" default="0.5" 
+    <arg name="parking_trigger_distance" default="0.6" 
          doc="Distance to ArUco marker to trigger parking (meters)"/>
     <arg name="parking_target_marker_id" default="0" 
          doc="Target ArUco marker ID for parking"/>

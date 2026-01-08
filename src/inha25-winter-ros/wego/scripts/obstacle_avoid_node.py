@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ㅗㄱㄹㅇ쪽이 비어이#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Obstacle Avoidance Node for WEGO (Gap Finding Algorithm)

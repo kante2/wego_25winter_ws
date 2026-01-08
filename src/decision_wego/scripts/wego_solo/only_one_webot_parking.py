@@ -219,7 +219,7 @@ class LaneFollow_2:
         yellow_ratio = yellow_pixel_count / total_pixels if total_pixels > 0 else 0.0
         
         # 노란색이 일정 비율 이상이면 감지
-        self.yellow_detected = (yellow_ratio > 0.05)  # 5% 이상
+        self.yellow_detected = (yellow_ratio > 0.01)  # 1% 이상
         
         # **디버그: 0.5초마다 상세 정보 출력**
         rospy.loginfo_throttle(0.5, 
@@ -319,8 +319,7 @@ class LaneFollow_2:
         # REVERSE_RIGHT: Reverse with right steering
         elif self.parking_state == "REVERSE_RIGHT":
             if elapsed >= self.reverse_right_time:
-                # REVERSE_LEFT와 FORWARD_STRAIGHT 건너뛰고 바로 DONE으로
-                self._set_parking_state("DONE")
+                self._set_parking_state("REVERSE_LEFT")
             rospy.loginfo_throttle(0.5, f"[Parking] REVERSE_RIGHT {elapsed:.1f}/{self.reverse_right_time}s")
             return self.speed_reverse, +self.steering_angle_parking, False
         
@@ -342,16 +341,21 @@ class LaneFollow_2:
         elif self.parking_state == "DONE":
             rospy.logwarn("="*60)
             rospy.logwarn("[PARKING COMPLETE] Vehicle parked successfully!")
+            rospy.logwarn("[SHUTDOWN] Terminating node in 1 second...")
             rospy.logwarn("="*60)
             
-            # **즉시 정지 명령 발행**
+            # 정지 명령 발행
             msg = AckermannDriveStamped()
             msg.header.stamp = rospy.Time.now()
-            msg.header.frame_id = 'Parking_Stop'
+            msg.header.frame_id = 'Parking_Done'
             msg.drive.speed = 0.0
             msg.drive.steering_angle = 0.0
             if self.publish_cmd_vel:
                 self.cmd_vel_pub.publish(msg)
+            
+            # 1초 대기 후 노드 종료
+            rospy.sleep(1.0)
+            rospy.signal_shutdown("Parking completed successfully")
             
             return 0.0, 0.0, True
         
@@ -805,39 +809,10 @@ class LaneFollow_2:
             if self.publish_cmd_vel:
                 self.cmd_vel_pub.publish(msg)
             
-            # 주차 완료 시 즉시 종료
+            # 주차 완료 시 플래그 해제
             if is_done:
-                rospy.logwarn("="*60)
-                rospy.logwarn("[SHUTDOWN] Parking complete. Shutting down node...")
-                rospy.logwarn("="*60)
-                
-                # 최종 정지 명령 여러 번 발행 (확실하게)
-                for _ in range(10):
-                    stop_msg = AckermannDriveStamped()
-                    stop_msg.header.stamp = rospy.Time.now()
-                    stop_msg.header.frame_id = 'Parking_Final_Stop'
-                    stop_msg.drive.speed = 0.0
-                    stop_msg.drive.steering_angle = 0.0
-                    if self.publish_cmd_vel:
-                        self.cmd_vel_pub.publish(stop_msg)
-                    rospy.sleep(0.05)  # 50ms 간격
-                
-                # parking_active를 True로 유지해서 차선 추종 실행 방지
-                self.parking_active = True  # ⚠️ False로 바꾸지 말 것!
-                rospy.signal_shutdown("Parking mission completed successfully")
-                
-                # 완전히 멈추기 위해 무한 대기
-                while not rospy.is_shutdown():
-                    stop_msg = AckermannDriveStamped()
-                    stop_msg.header.stamp = rospy.Time.now()
-                    stop_msg.header.frame_id = 'Parking_Hold'
-                    stop_msg.drive.speed = 0.0
-                    stop_msg.drive.steering_angle = 0.0
-                    if self.publish_cmd_vel:
-                        self.cmd_vel_pub.publish(stop_msg)
-                    rospy.sleep(0.1)
-                
-                return  # 혹시 모를 경우 대비
+                self.parking_active = False
+                rospy.loginfo("[Main] Parking complete, resuming normal operation...")
             
             return  # 주차 중에는 차선 추종 무시
         

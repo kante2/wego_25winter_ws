@@ -5,6 +5,8 @@
 ### 3단계 실행 순서
 
 ```bash
+
+# ** 
 # 1단계: 기본 하드웨어 설정 (카메라, LiDAR, 모터 제어)
 source devel/setup.bash
 roslaunch wego bringup.launch
@@ -22,9 +24,13 @@ source devel/setup.bash
 roslaunch decision_wego only_one_webot.
 
 
-# 5.
+# 5. ** 
 source devel/setup.bash
 roslaunch decision_wego parking_with_aruco.launch
+
+# 6. DEBUGGING
+source devel/setup.bash
+rosrun decision_wego yellow_corn_debugging.py
 
 ```
 
