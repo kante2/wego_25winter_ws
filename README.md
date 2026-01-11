@@ -1,5 +1,9 @@
 # Only One Webot Parking - 통합 자율주행 노드
 
+## 인하대학교 캡스톤2 webot 로봇을 활용한 자율주행 로봇 알고리즘 제작
+- 모든 미션 주행 완료
+- kante2 1인 개발
+
 ## 📋 개요
 
 `only_one_webot_parking.py`는 WEGO 자율주행 차량을 위한 통합 제어 노드입니다. 차선 추종, 장애물 회피, ArUco 마커 기반 주차 및 회전 미션을 하나의 노드로 처리합니다.
