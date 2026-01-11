@@ -69,9 +69,15 @@ class LaneFollow_2:
         # Stop flag (from traffic light or other nodes)
         self.stop_flag = False
         
+        # 시작 대기 시간 (8초)
+        self.start_time = rospy.Time.now()
+        self.startup_delay = rospy.get_param('~startup_delay', 8.0)  # 8초 대기
+        self.is_ready_to_drive = False
+        
         # LiDAR data for obstacle detection
         self.ranges = None
         self.angle_increment = 0
+        self.min_front_distance = 10.0  # 장애물 거리 저장용
         
         # Obstacle avoidance parameters
         self.avoidance_gain = rospy.get_param('~avoidance_gain', 0.6)
@@ -81,6 +87,16 @@ class LaneFollow_2:
         self.avoidance_angle = 0.0
         self.sector_angles = []
         self.sector_densities = []
+        
+        # ===== RED TRAFFIC LIGHT DETECTION =====
+        self.red_detected = False
+        self.red_stop_triggered = False  # 빨간불 정지 1회만 수행했는지 플래그
+        # 빨간색 HSV 범위 확장 (채도, 명도 임계값 낮춤)
+        self.red_lower1 = np.array([0, 70, 70], dtype=np.uint8)      # 빨간색 HSV (0-10) - 더 어두운 빨강도 포함
+        self.red_upper1 = np.array([10, 255, 255], dtype=np.uint8)
+        self.red_lower2 = np.array([165, 70, 70], dtype=np.uint8)    # 빨간색 HSV (165-180) - 범위 확장
+        self.red_upper2 = np.array([180, 255, 255], dtype=np.uint8)
+        self.red_threshold = rospy.get_param('~red_threshold', 0.005)  # 0.5%로 낮춤 (더 민감하게)
         
         # ===== PARKING PARAMETERS (from mission_parking.py) =====
         self.parking_active = False
@@ -103,6 +119,22 @@ class LaneFollow_2:
         
         self.trigger_distance = rospy.get_param('~parking_trigger_distance', 0.5)
         self.target_marker_id = rospy.get_param('~parking_target_marker_id', 0)
+        
+        # ===== TURN MANEUVER PARAMETERS (좌회전/우회전 하드코딩) =====
+        self.turn_active = False
+        self.turn_state = "IDLE"
+        self.turn_phase_start_time = None
+        self.turn_triggered = False
+        self.turn_direction = None  # "LEFT" or "RIGHT"
+        
+        self.turn_speed = rospy.get_param('~turn_speed', 0.35)
+        self.turn_steering_angle = rospy.get_param('~turn_steering_angle', 0.5)
+        self.turn_duration = rospy.get_param('~turn_duration', 2.0)  # 첫 번째 방향 2초 (기본값)
+        self.turn_right_first_duration = rospy.get_param('~turn_right_first_duration', 1.8)  # ID 4 첫 번째(우회전) 1.8초
+        self.turn_duration_second = rospy.get_param('~turn_duration_second', 2.0)  # 두 번째 방향 2초 (기본값)
+        self.turn_right_second_duration = rospy.get_param('~turn_right_second_duration', 3.7)  # ID 4 두 번째(좌회전) 3.0초
+        self.turn_left_marker_id = rospy.get_param('~turn_left_marker_id', 1)
+        self.turn_right_marker_id = rospy.get_param('~turn_right_marker_id', 4)
         
         # Subscribe to ArUco marker info
         aruco_topic = rospy.get_param('~aruco_marker_info_topic', '/webot/aruco/marker_info')
@@ -163,6 +195,8 @@ class LaneFollow_2:
         rospy.loginfo("Speed topic: /webot/lane_speed")
         rospy.loginfo(f"LiDAR obstacle detection: safe_distance={self.obstacle_safe_distance}m")
         rospy.loginfo(f"Parking: target_marker_id={self.target_marker_id}, trigger_dist={self.trigger_distance}m")
+        rospy.loginfo(f"Turn Left: marker_id={self.turn_left_marker_id}, trigger_dist={self.trigger_distance}m, duration={self.turn_duration}s + {self.turn_duration_second}s")
+        rospy.loginfo(f"Turn Right: marker_id={self.turn_right_marker_id}, trigger_dist={self.trigger_distance}m, duration={self.turn_duration}s + {self.turn_right_second_duration}s")
         rospy.loginfo("View: rqt_image_view /webot/lane_detect/image")
         rospy.loginfo("="*50)
        
@@ -229,6 +263,46 @@ class LaneFollow_2:
         
         return mask
 
+    def red_color_filter_hsv(self, img):
+        """
+        Red traffic light detection (lower region: 70%-100% vertical, left 60% horizontal)
+        좌측 하단부(세로 70%~100%, 가로 좌측 60%)에서 빨간색 신호등 감지
+        """
+        h, w = img.shape[:2]
+        # ROI 하단으로 이동: 세로 70%~100% (하단 30%), 가로 0~60% (좌측 60%)
+        roi_y_start = int(h * 0.7)  # 70%부터 시작 (더 아래로)
+        roi_y_end = h  # 100%까지
+        roi_x_start = 0  # 좌측
+        roi_x_end = int(w * 0.6)  # 60%까지
+        
+        lower_left_roi = img[roi_y_start:roi_y_end, roi_x_start:roi_x_end]
+        
+        # HSV 변환
+        hsv = cv.cvtColor(lower_left_roi, cv.COLOR_BGR2HSV)
+        
+        # 빨간색은 HSV에서 0-10, 165-180 두 범위로 나뉨
+        mask1 = cv.inRange(hsv, self.red_lower1, self.red_upper1)
+        mask2 = cv.inRange(hsv, self.red_lower2, self.red_upper2)
+        red_mask = cv.bitwise_or(mask1, mask2)
+        
+        # 빨간색 픽셀 비율 계산
+        red_pixel_count = cv.countNonZero(red_mask)
+        total_pixels = red_mask.shape[0] * red_mask.shape[1]
+        red_ratio = red_pixel_count / total_pixels if total_pixels > 0 else 0.0
+        
+        # 빨간색 감지 (임계값 이상)
+        self.red_detected = (red_ratio > self.red_threshold)
+        
+        # 디버그 로그 - 더 자주 출력
+        if self.red_detected:
+            rospy.logwarn_throttle(0.3, 
+                f"[RED TRAFFIC LIGHT] Ratio: {red_ratio*100:.3f}% | STOPPING!")
+        else:
+            rospy.loginfo_throttle(1.0, 
+                f"[Red Check] Ratio: {red_ratio*100:.3f}% | ROI: {roi_y_start}:{roi_y_end}, {roi_x_start}:{roi_x_end}")
+        
+        return red_mask
+
     def roi_set(self,img):
         roi_img = img[310:480,0:640]
         return roi_img   
@@ -247,19 +321,34 @@ class LaneFollow_2:
         """
         Callback for ArUco marker detection
         msg.data = [id1, dist1, id2, dist2, ...]
+        ID 0: 주차
+        ID 1: 좌회전 (좌->우 시퀀스)
+        ID 4: 우회전 (우->좌 시퀀스)
         """
-        if self.parking_active or self.parking_triggered or self.parking_state != "IDLE":
+        # 이미 다른 미션이 진행 중이면 무시
+        if self.parking_active or self.turn_active:
             return
         
         data = list(msg.data)
         if len(data) < 2:
             return
         
+        # 디버그: 감지된 모든 마커 정보 출력
+        detected_markers = []
+        for i in range(0, len(data) - 1, 2):
+            marker_id = int(data[i])
+            dist = float(data[i + 1])
+            detected_markers.append(f"ID{marker_id}:{dist:.2f}m")
+        
+        if detected_markers:
+            rospy.loginfo_throttle(2.0, f"[ArUco Debug] Detected: {', '.join(detected_markers)}")
+        
         for i in range(0, len(data) - 1, 2):
             marker_id = int(data[i])
             dist = float(data[i + 1])
             
-            if marker_id == self.target_marker_id:
+            # 주차 미션 (ID 0)
+            if marker_id == self.target_marker_id and self.parking_state == "IDLE":
                 rospy.loginfo_throttle(0.5,
                     f"[Parking] ArUco ID:{marker_id} dist={dist:.3f}m (trigger<={self.trigger_distance}m)")
                 
@@ -272,6 +361,48 @@ class LaneFollow_2:
                     self.parking_active = True
                     self._set_parking_state("STOP_BEFORE")
                 return
+            
+            # 좌회전 미션 (ID 1)
+            elif marker_id == self.turn_left_marker_id and self.turn_state == "IDLE":
+                # 디버그: 마커 1 감지 정보
+                if dist > self.trigger_distance:
+                    rospy.loginfo_throttle(1.0,
+                        f"[Turn Debug] ID 1 detected at {dist:.3f}m (waiting for {self.trigger_distance}m)")
+                else:
+                    rospy.loginfo_throttle(0.5,
+                        f"[Turn Left] ArUco ID:{marker_id} dist={dist:.3f}m (trigger<={self.trigger_distance}m)")
+                
+                if dist <= self.trigger_distance:
+                    rospy.logwarn("="*60)
+                    rospy.logwarn(f"[LEFT TURN TRIGGERED] ArUco ID {marker_id} detected at {dist:.3f}m!")
+                    rospy.logwarn("Starting LEFT turn sequence (Left 2s -> Right 2s)...")
+                    rospy.logwarn("="*60)
+                    self.turn_triggered = True
+                    self.turn_active = True
+                    self.turn_direction = "LEFT"
+                    self._set_turn_state("TURN_FIRST")
+                return
+            
+            # 우회전 미션 (ID 4)
+            elif marker_id == self.turn_right_marker_id and self.turn_state == "IDLE":
+                # 디버그: 마커 4 감지 정보
+                if dist > self.trigger_distance:
+                    rospy.loginfo_throttle(1.0,
+                        f"[Turn Debug] ID 4 detected at {dist:.3f}m (waiting for {self.trigger_distance}m)")
+                else:
+                    rospy.loginfo_throttle(0.5,
+                        f"[Turn Right] ArUco ID:{marker_id} dist={dist:.3f}m (trigger<={self.trigger_distance}m)")
+                
+                if dist <= self.trigger_distance:
+                    rospy.logwarn("="*60)
+                    rospy.logwarn(f"[RIGHT TURN TRIGGERED] ArUco ID {marker_id} detected at {dist:.3f}m!")
+                    rospy.logwarn(f"Starting RIGHT turn sequence (Right 1.5s -> Left 2s)...")
+                    rospy.logwarn("="*60)
+                    self.turn_triggered = True
+                    self.turn_active = True
+                    self.turn_direction = "RIGHT"
+                    self._set_turn_state("TURN_FIRST")
+                return
     
     def _set_parking_state(self, new_state):
         """Helper to transition parking states"""
@@ -279,11 +410,23 @@ class LaneFollow_2:
         self.parking_state = new_state
         self.parking_phase_start_time = rospy.Time.now()
     
+    def _set_turn_state(self, new_state):
+        """Helper to transition turn maneuver states"""
+        rospy.logwarn(f"[Turn {self.turn_direction}] State: {self.turn_state} -> {new_state}")
+        self.turn_state = new_state
+        self.turn_phase_start_time = rospy.Time.now()
+    
     def _parking_elapsed(self):
         """Get elapsed time in current parking phase"""
         if self.parking_phase_start_time is None:
             return 0.0
         return (rospy.Time.now() - self.parking_phase_start_time).to_sec()
+    
+    def _turn_elapsed(self):
+        """Get elapsed time in current turn phase"""
+        if self.turn_phase_start_time is None:
+            return 0.0
+        return (rospy.Time.now() - self.turn_phase_start_time).to_sec()
     
     def execute_parking_sequence(self):
         """
@@ -361,6 +504,83 @@ class LaneFollow_2:
         
         # Fallback
         return 0.0, 0.0, False
+    
+    def execute_turn_sequence(self):
+        """
+        Execute hardcoded turn maneuver
+        LEFT: 좌회전(2s) -> 우회전(2s)
+        RIGHT: 우회전(1.5s) -> 좌회전(2s)
+        Returns: (speed, steering, is_done)
+        """
+        if not self.turn_active:
+            return 0.0, 0.0, False
+        
+        elapsed = self._turn_elapsed()
+        
+        # TURN_FIRST: 첫 번째 방향 회전
+        if self.turn_state == "TURN_FIRST":
+            # ID 4 (우회전)의 경우 첫 번째는 1.5초
+            if self.turn_direction == "RIGHT":
+                duration = self.turn_right_first_duration  # 1.5초
+            else:
+                duration = self.turn_duration  # 2.0초 (ID 1의 경우)
+            
+            if elapsed > duration:
+                self._set_turn_state("TURN_SECOND")
+            
+            # LEFT 시퀀스: 첫 번째는 좌회전
+            if self.turn_direction == "LEFT":
+                steering = -self.turn_steering_angle  # 좌회전
+                rospy.loginfo_throttle(0.5, 
+                    f"[Turn LEFT] TURN_FIRST (Left) {elapsed:.1f}/{duration}s")
+            # RIGHT 시퀀스: 첫 번째는 우회전
+            else:
+                steering = +self.turn_steering_angle  # 우회전
+                rospy.loginfo_throttle(0.5, 
+                    f"[Turn RIGHT] TURN_FIRST (Right) {elapsed:.1f}/{duration}s")
+            
+            return self.turn_speed, steering, False
+        
+        # TURN_SECOND: 두 번째 방향 회전
+        elif self.turn_state == "TURN_SECOND":
+            # ID 4 (우회전)의 경우 두 번째(좌회전)는 3.0초
+            if self.turn_direction == "RIGHT":
+                duration = self.turn_right_second_duration  # 3.0초
+            else:
+                duration = self.turn_duration_second  # 2.0초 (ID 1의 경우)
+            
+            if elapsed > duration:
+                self._set_turn_state("DONE")
+            
+            # LEFT 시퀀스: 두 번째는 우회전
+            if self.turn_direction == "LEFT":
+                steering = +self.turn_steering_angle  # 우회전
+                rospy.loginfo_throttle(0.5, 
+                    f"[Turn LEFT] TURN_SECOND (Right) {elapsed:.1f}/{duration}s")
+            # RIGHT 시퀀스: 두 번째는 좌회전
+            else:
+                steering = -self.turn_steering_angle  # 좌회전
+                rospy.loginfo_throttle(0.5, 
+                    f"[Turn RIGHT] TURN_SECOND (Left) {elapsed:.1f}/{duration}s")
+            
+            return self.turn_speed, steering, False
+        
+        # DONE: 회전 완료
+        elif self.turn_state == "DONE":
+            rospy.logwarn("="*60)
+            rospy.logwarn(f"[TURN {self.turn_direction} COMPLETE] Resuming normal driving...")
+            rospy.logwarn("="*60)
+            
+            # 상태 초기화 (노드는 종료하지 않음)
+            self.turn_active = False
+            self.turn_triggered = False
+            self.turn_state = "IDLE"
+            self.turn_direction = None
+            
+            return 0.0, 0.0, True
+        
+        # Fallback
+        return 0.0, 0.0, False
 
     def scan_callback(self, msg):
         """Callback for LiDAR scan data - obstacle detection with sector analysis"""
@@ -368,27 +588,27 @@ class LaneFollow_2:
         self.angle_increment = msg.angle_increment
         
         # 기본 전방 장애물 거리 체크
-        min_front_distance = self._get_min_front_distance()
+        self.min_front_distance = self._get_min_front_distance()
         
         # 섹터 분석 수행
         self.sector_angles, self.sector_densities, self.avoidance_angle = \
             self._analyze_lidar_sectors(num_sectors=self.num_sectors)
         
         # 정지 판단: 노란색 감지 시에는 회피 시도, 아니면 정지
-        if min_front_distance < self.obstacle_stop_distance:
+        if self.min_front_distance < self.obstacle_stop_distance:
             # 매우 가까운 경우에만 무조건 정지
             rospy.logwarn_throttle(1.0, 
-                f"[Emergency Stop] Obstacle too close! Distance: {min_front_distance:.3f}m")
+                f"[Emergency Stop] Obstacle too close! Distance: {self.min_front_distance:.3f}m")
             self.stop_flag = True
-        elif min_front_distance < self.obstacle_safe_distance:
+        elif self.min_front_distance < self.obstacle_safe_distance:
             # 노란색이 감지되면 회피 시도, 아니면 정지
             if self.yellow_detected:
                 rospy.loginfo_throttle(1.0, 
-                    f"[Avoidance Mode] Yellow: YES | Obstacle: YES ({min_front_distance:.2f}m) | Avoiding...")
+                    f"[Avoidance Mode] Yellow: YES | Obstacle: YES ({self.min_front_distance:.2f}m) | Avoiding...")
                 self.stop_flag = False  # 회피 가능
             else:
                 rospy.logwarn_throttle(1.0, 
-                    f"[Stop Mode] Yellow: NO | Obstacle: YES ({min_front_distance:.2f}m) | Stopping...")
+                    f"[Stop Mode] Yellow: NO | Obstacle: YES ({self.min_front_distance:.2f}m) | Stopping...")
                 self.stop_flag = True
         else:
             self.stop_flag = False
@@ -697,7 +917,7 @@ class LaneFollow_2:
 
         return yaw, error,x_center
     
-    def cal_steering(self,yaw,error,gear=3,k=0.005,yaw_k=1.0): #각도들은 라디안, 거리는 px값, 속도는 0~1사이 스케일값 m/s
+    def cal_steering(self,yaw,error,gear=3,k=0.005,yaw_k=1.0,obstacle_distance=10.0): #각도들은 라디안, 거리는 px값, 속도는 0~1사이 스케일값 m/s
         base_speed = self.config.base_speed
         k = self.config.k
         yaw_k = self.config.yaw_k
@@ -734,7 +954,20 @@ class LaneFollow_2:
             msg.drive.speed = 0.0
             msg.drive.steering_angle = 0.0
         else:
-            msg.drive.speed = 0.4
+            # 장애물 거리에 따른 속도 조정
+            if obstacle_distance < self.obstacle_safe_distance:
+                # 0.2m ~ 0.5m 사이: 선형 감속 (0.4 -> 0.15)
+                speed_ratio = (obstacle_distance - self.obstacle_stop_distance) / \
+                             (self.obstacle_safe_distance - self.obstacle_stop_distance)
+                speed_ratio = np.clip(speed_ratio, 0.0, 1.0)
+                reduced_speed = 0.15 + (0.25 * speed_ratio)  # 0.15 ~ 0.4 m/s
+                msg.drive.speed = reduced_speed
+                rospy.loginfo_throttle(0.5, 
+                    f"[Slow Down] Obstacle: {obstacle_distance:.2f}m | Speed: {reduced_speed:.2f} m/s")
+            else:
+                # 정상 속도
+                msg.drive.speed = 0.4
+            
             msg.drive.steering_angle = steering
 
 
@@ -791,7 +1024,33 @@ class LaneFollow_2:
 
 
     def main(self):
-        # ===== 주차 시퀀스가 활성화되면 최우선 실행 =====
+        # ===== 회전 시퀀스가 활성화되면 최우선 실행 (주차보다 우선) =====
+        if self.turn_active:
+            speed, steering, is_done = self.execute_turn_sequence()
+            
+            # 회전 명령 발행
+            msg = AckermannDriveStamped()
+            msg.header.stamp = rospy.Time.now()
+            msg.header.frame_id = f'Turn_{self.turn_direction}'
+            msg.drive.speed = speed
+            msg.drive.steering_angle = steering
+            
+            # 디버그: 회전 명령 상세 출력
+            rospy.loginfo_throttle(0.3,
+                f"[Turn {self.turn_direction}] State={self.turn_state} | "
+                f"Speed={speed:.2f} | Steer={steering:.3f} | "
+                f"Elapsed={self._turn_elapsed():.1f}s")
+            
+            if self.publish_cmd_vel:
+                self.cmd_vel_pub.publish(msg)
+            
+            # 회전 완료 시 플래그 해제 (이미 execute_turn_sequence에서 처리됨)
+            if is_done:
+                rospy.logwarn("[Main] Turn complete, resuming normal operation...")
+            
+            return  # 회전 중에는 다른 제어 무시
+        
+        # ===== 주차 시퀀스가 활성화되면 두 번째 우선순위 =====
         if self.parking_active:
             speed, steering, is_done = self.execute_parking_sequence()
             
@@ -820,6 +1079,26 @@ class LaneFollow_2:
         if self.bgr is None:
             return
         
+        # ===== 시작 8초 대기 =====
+        if not self.is_ready_to_drive:
+            elapsed = (rospy.Time.now() - self.start_time).to_sec()
+            if elapsed < self.startup_delay:
+                rospy.loginfo_throttle(1.0, f"[Startup] Waiting... {elapsed:.1f}/{self.startup_delay}s")
+                # 정지 명령 발행
+                msg = AckermannDriveStamped()
+                msg.header.stamp = rospy.Time.now()
+                msg.header.frame_id = 'Startup_Wait'
+                msg.drive.speed = 0.0
+                msg.drive.steering_angle = 0.0
+                if self.publish_cmd_vel:
+                    self.cmd_vel_pub.publish(msg)
+                return
+            else:
+                self.is_ready_to_drive = True
+                rospy.logwarn("="*60)
+                rospy.logwarn("[STARTUP] 8 seconds delay completed! Starting to drive...")
+                rospy.logwarn("="*60)
+        
         self.warp_img_ori = self.warpping(self.bgr)
         self.warp_img = self.roi_set(self.warp_img_ori)
 
@@ -843,7 +1122,7 @@ class LaneFollow_2:
         rfit = self.sliding_window_right(combined_mask)
         self.yaw,self.error= self.cal_center_line_right(rfit)
 
-        self.cal_steering(yaw=self.yaw,error=self.error)
+        self.cal_steering(yaw=self.yaw, error=self.error, obstacle_distance=self.min_front_distance)
 
         #debug_img = self.draw_lane(self.bgr,self.warp_img,self.warp_img_ori,self.inv_warp_mat,lfit,rfit)
         

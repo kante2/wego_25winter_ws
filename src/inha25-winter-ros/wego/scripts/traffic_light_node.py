@@ -21,6 +21,12 @@ from wego.cfg import TrafficLightConfig
 
 
 class TrafficLightNode:
+    
+    
+    
+    
+    
+    
     def __init__(self):
         rospy.init_node('traffic_light_node', anonymous=True)
         
